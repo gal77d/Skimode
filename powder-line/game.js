@@ -134,11 +134,11 @@ const TRAILS = [
     kickers: [[350, 0, 'XL'], [640, 0, 'XL'], [930, 0, 'XL'], [1220, 0, 'XL'], [1510, 0, 'XL'], [1800, 0, 'XL']], rails: [], pipe: null,
     banner: 'GLACIER GAP  ·  SIX 65 m MEGA GAPS', alpine: true, lake: true, rocks: 170, peaks: [430, 1300, 1.7],
     blurb: 'The highest gondola on the hill drops you onto a glacier with six 16-metre kickers in a row, each throwing you 65 m to an 80 m landing. The first one sends you over a frozen lake. Every gap pays 150 coins before tricks, so a clean run is worth 900+.' },
-  { id: 'monster', name: 'The Monster', diff: 'park', tag: 'One giant jump', price: 10000, run: 1000, startAlt: 3820, slope: 0.40,
-    wind: [5, 0.004, 2, 0.011], roll: [3, 1], half: 50, park: [120, 950], trees: 0, spread: 40, inrun: [500, 0.38, 40],
-    kickers: [[500, 0, 'XXL']], rails: [], pipe: null, banner: 'THE MONSTER  ·  120 m  ·  50 m HIGH',
+  { id: 'monster', name: 'The Monster', diff: 'park', tag: 'One giant jump', price: 10000, run: 1450, startAlt: 3820, slope: 0.40,
+    wind: [5, 0.004, 2, 0.011], roll: [3, 1], half: 62, park: [120, 1400], trees: 0, spread: 40, inrun: [500, 0.38, 40],
+    kickers: [[500, 0, 'XXL']], rails: [], pipe: null, banner: 'THE MONSTER  ·  320 m  ·  160 m HIGH',
     alpine: true, lake: true, rocks: 190, peaks: [460, 1250, 1.9],
-    blurb: 'The biggest jump on the mountain. A 500 m in-run so steep it feels like falling, into a 32-metre kicker that launches you about 120 m through the air, up to 50 m above the snow, over a lake in a deep canyon. Nearly five seconds of air: enough for double flips and huge spins. The jump alone pays 500 coins.' },
+    blurb: 'The biggest jump on the mountain. A 500 m in-run so steep it feels like falling, into a 60-metre kicker that launches you about 320 m through the air, up to 160 m above the snow, over a lake in a deep canyon. Seven seconds of air: you glide like a ski jumper, with time for triple flips and huge spins. The jump alone pays 500 coins.' },
 ];
 let T = TRAILS[0], RUN = T.run, START_ALT = T.startAlt;
 const centerX = (s) => T.wind[0] * Math.sin(s * T.wind[1]) + T.wind[2] * Math.sin(s * T.wind[3] + 1.3);
@@ -206,7 +206,7 @@ const KICK = {
   M: { H: 2.6, Lr: 10, Lt: 9, Ll: 24, w: 9 },
   L: { H: 5.6, Lr: 18, Lt: 16, Ll: 44, w: 13 },
   XL: { H: 16.0, Lr: 46, Lt: 65, Ll: 80, w: 24, wall: 3.5, cut: true, gap: true },
-  XXL: { H: 32.0, Lr: 80, Lt: 82, Ll: 100, w: 34, wall: 4, cut: true, gap: true },   // The Monster: ~120 m flight, ~50 m high   // 65 m gap over a lake   // shaped like a pro park kicker: shovel-cut walls
+  XXL: { H: 60.0, Lr: 150, Lt: 230, Ll: 220, w: 48, wall: 6, cut: true, gap: true },   // The Monster: a giant gap jump   // 65 m gap over a lake   // shaped like a pro park kicker: shovel-cut walls
 };
 // Half-pipe cross-section (metres): flat floor, circular transitions to near-vertical, deck, outer fall-off
 const PF = 7, PR = 6.2, PANG = 1.48, PWMAX = PR * Math.sin(PANG), PTOP = 6.0, PDECK = 3.2, PFALL = 9;
@@ -642,7 +642,7 @@ function buildBackdrop() {
       sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n vInside = aInside;');
     sh.fragmentShader = 'varying float vInside;\n' + sh.fragmentShader.replace('#include <fog_fragment>', `
       #ifdef USE_FOG
-        float fogD = mix(0.00028, ${FOG_DENSITY.toFixed(5)}, vInside);
+        float fogD = mix(0.00028 * fogDensity / ${FOG_DENSITY.toFixed(5)}, fogDensity, vInside);
         float fogF = 1.0 - exp(-fogD * fogD * vFogDepth * vFogDepth);
         gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogF);
       #endif`);
@@ -1480,10 +1480,13 @@ function doPop(n, perfect, gi) {
    If the pop is so big the landing would be too hard, some height is taken off as well. */
 const _aimP = new THREE.Vector3(), _aimD = new THREE.Vector3(), _aimC = new THREE.Vector3(), _aimN = new THREE.Vector3();
 const AIM_SPOT = 0.4, AIM_MAX_IMPACT = 9;
+// Air drag area in flight. Off The Monster the rider glides like a ski jumper (much less drag),
+// otherwise no in-run could carry them across its huge gap.
+const airCdA = () => (P.launch === 'kicker-XXL' ? 0.1 : 0.45);
 function simLanding(p0, dir, hs, vy, out) {
   let x = p0.x, y = p0.y, z = p0.z, vx = dir.x * hs, vz = dir.z * hs, v = vy;
-  const dt = 1 / 60, k = (0.5 * RHO * 0.45) / MASS;
-  for (let i = 0; i < 480; i++) {
+  const dt = 1 / 60, k = (0.5 * RHO * airCdA()) / MASS;
+  for (let i = 0; i < 1500; i++) {
     v -= G * dt;
     const d = Math.max(0, 1 - k * Math.hypot(vx, v, vz) * dt);
     vx *= d; v *= d; vz *= d;
@@ -1505,8 +1508,8 @@ function aimGap(f, hs) {
   for (let tries = 0; tries < 8; tries++) {
     for (const spot of [0.4, 0.5, 0.6]) {
       const target = sl + f.Lt + f.Ll * spot;
-      let lo = 0.5, hi = 70;
-      for (let it = 0; it < 18; it++) {
+      let lo = 0.5, hi = 130;
+      for (let it = 0; it < 20; it++) {
         const mid = (lo + hi) / 2;
         simLanding(P.pos, _aimD, mid, k * mid, _aimP);
         if (-_aimP.z < target) lo = mid; else hi = mid;
@@ -1565,7 +1568,7 @@ function airStep(dt, inp, steerT, released) {
 
   P.vel.y -= G * dt;
   const sp = P.vel.length();
-  P.vel.multiplyScalar(Math.max(0, 1 - (0.5 * RHO * 0.45 * sp) / MASS * dt));
+  P.vel.multiplyScalar(Math.max(0, 1 - (0.5 * RHO * airCdA() * sp) / MASS * dt));
   P.spin += steerT * 5.2 * dt;                                       // A/D: spin about body axis
   P.flip += ((inp.brake ? 1 : 0) - (inp.tuck ? 1 : 0)) * 3.8 * dt;   // W: forward, S: backward
   if (P.autoFlip > 0) { const d = Math.min(P.autoFlip, P.autoFlipRate * dt); P.flip += d; P.autoFlip -= d; }
@@ -3233,6 +3236,7 @@ function frame() {
   updateShadow();
   updateLOD();
   spray.update(dt);
+  updateWeather(dt);
   updateStations(dt);
   mpUpdate(dt);
   if (LAKE && LAKE.mat) { LAKE.mat.normalMap.offset.x += dt * 0.012; LAKE.mat.normalMap.offset.y += dt * 0.007; }
@@ -3319,6 +3323,131 @@ function goHome() {
 $('again').addEventListener('click', startGondola);
 $('skipTop').addEventListener('click', () => { $('finish').hidden = true; arriveTop(); });
 $('skipRide').addEventListener('click', skipRide);
+
+/* =========================================================
+   Weather: falling snow, and now and then a snowstorm
+   ---------------------------------------------------------
+   The weather follows the real clock (not a random number per player), so friends
+   in the same room always see the same snowfall and the same storms.
+   Light snow drifts most of the time; in some 5-minute cycles a storm rolls in:
+   heavy snow driven sideways by the wind, thick fog and a darker, flatter light.
+   ========================================================= */
+const WX = {
+  N: isCoarse ? 1800 : 3200, BOX: 44, H: 30,
+  intensity: 0, storm: 0, wasStorm: false, wind: 0, time: 0,
+  base: { sun: 0, hemi: 0, exposure: 0, fog: new THREE.Color(), turb: 0, ray: 0 },
+};
+WX.base.sun = sun.intensity; WX.base.hemi = hemi.intensity; WX.base.exposure = renderer.toneMappingExposure;
+WX.base.fog.copy(scene.fog.color);
+WX.base.turb = sky.material.uniforms.turbidity.value; WX.base.ray = sky.material.uniforms.rayleigh.value;
+const WX_STORM_FOG = new THREE.Color(0.62, 0.66, 0.72).multiplyScalar(0.55);
+
+const wxHash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+// 0 = clear, ~0.3 = light snow, 1 = full storm
+function weatherAt(t) {
+  const CYCLE = 300;
+  const k = Math.floor(t / CYCLE), u = t - k * CYCLE;
+  // gentle snowfall that slowly changes strength
+  const snow = 0.18 + 0.22 * (0.5 + 0.5 * Math.sin(t * 0.021 + 1.3)) * (0.5 + 0.5 * Math.sin(t * 0.0077));
+  // a storm in a bit more than half of the cycles, lasting ~100 s with 25 s build-up and clearing
+  let storm = 0;
+  if (wxHash(k) < 0.58) {
+    const s0 = 60 + wxHash(k + 0.5) * 110, s1 = s0 + 100;
+    storm = smooth(s0, s0 + 25, u) * (1 - smooth(s1 - 25, s1, u));
+  }
+  return Math.max(snow, storm);
+}
+
+// flakes: a fixed pool of points around the camera, wrapped as the camera moves (no new objects)
+const wxPos = new Float32Array(WX.N * 3), wxSpd = new Float32Array(WX.N), wxPh = new Float32Array(WX.N);
+for (let i = 0; i < WX.N; i++) {
+  wxPos[i * 3] = (Math.random() - 0.5) * WX.BOX;
+  wxPos[i * 3 + 1] = Math.random() * WX.H;
+  wxPos[i * 3 + 2] = (Math.random() - 0.5) * WX.BOX;
+  wxSpd[i] = 0.75 + Math.random() * 0.6;
+  wxPh[i] = Math.random() * 6.28;
+}
+const wxGeo = new THREE.BufferGeometry();
+const wxAttr = new THREE.BufferAttribute(wxPos, 3).setUsage(THREE.DynamicDrawUsage);
+wxGeo.setAttribute('position', wxAttr);
+const wxMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false, fog: false,
+  uniforms: { uScale: { value: 400 }, uAlpha: { value: 0.8 }, uSize: { value: 0.06 } },
+  vertexShader: `
+    uniform float uScale; uniform float uSize;
+    varying float vFade;
+    void main() {
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      float d = -mv.z;
+      gl_PointSize = clamp(uSize * uScale / max(d, 0.1), 1.0, 26.0);
+      vFade = smoothstep(0.4, 1.6, d) * (1.0 - smoothstep(16.0, 24.0, d));
+    }`,
+  fragmentShader: `
+    uniform float uAlpha;
+    varying float vFade;
+    void main() {
+      vec2 c = gl_PointCoord - 0.5;
+      float a = smoothstep(0.5, 0.15, length(c)) * uAlpha * vFade;
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(vec3(1.0), a);
+    }`,
+});
+// storm clouds: a grey dome that covers the blue sky while a storm is on (hidden otherwise)
+const wxDomeMat = new THREE.MeshBasicMaterial({ color: WX_STORM_FOG.clone(), side: THREE.BackSide, transparent: true, opacity: 0, depthWrite: false, fog: false });
+const wxDome = new THREE.Mesh(new THREE.SphereGeometry(5200, 32, 16), wxDomeMat);
+wxDome.renderOrder = -1;
+wxDome.visible = false;
+scene.add(wxDome);
+const wxPoints = new THREE.Points(wxGeo, wxMat);
+wxPoints.frustumCulled = false;
+wxPoints.renderOrder = 5;
+scene.add(wxPoints);
+
+function updateWeather(dt) {
+  WX.time += dt;
+  const target = weatherAt(Date.now() / 1000);
+  WX.intensity += (target - WX.intensity) * Math.min(1, dt * 0.5);
+  const I = WX.intensity, S = smooth(0.55, 1.0, I);
+  WX.storm = S;
+  WX.wind += ((2 + 16 * S) - WX.wind) * Math.min(1, dt * 0.4);
+
+  if (S > 0.5 && !WX.wasStorm) { WX.wasStorm = true; if (started) toast('Snowstorm!', 'bad', 'heavy snow and wind — visibility is low'); }
+  if (S < 0.2 && WX.wasStorm) { WX.wasStorm = false; if (started) toast('The storm is passing', 'good', 'the sky is clearing up'); }
+
+  // flakes: fall, sway, get pushed sideways by the wind, wrap around the camera
+  const cam = camera.position, half = WX.BOX / 2, bottom = cam.y - WX.H * 0.4;
+  const active = Math.floor(WX.N * (0.18 + 0.82 * I));
+  const fall = 1.3 + 2.2 * S, wx = WX.wind, t = WX.time;
+  for (let i = 0; i < active; i++) {
+    const i3 = i * 3;
+    let x = wxPos[i3] + (wx + Math.sin(t * 1.1 + wxPh[i]) * 0.6) * dt;
+    let y = wxPos[i3 + 1] - fall * wxSpd[i] * dt;
+    let z = wxPos[i3 + 2] + Math.cos(t * 0.9 + wxPh[i]) * 0.5 * dt;
+    const dx = x - cam.x; if (dx > half) x -= WX.BOX; else if (dx < -half) x += WX.BOX;
+    const dz = z - cam.z; if (dz > half) z -= WX.BOX; else if (dz < -half) z += WX.BOX;
+    const dy = y - bottom; if (dy < 0) y += WX.H; else if (dy > WX.H) y -= WX.H;
+    wxPos[i3] = x; wxPos[i3 + 1] = y; wxPos[i3 + 2] = z;
+  }
+  wxGeo.setDrawRange(0, active);
+  wxAttr.needsUpdate = true;
+  wxMat.uniforms.uScale.value = (renderer.domElement.height * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+  wxMat.uniforms.uSize.value = 0.11 + 0.05 * S;
+  wxMat.uniforms.uAlpha.value = 0.55 + 0.4 * I;
+
+  // the world in a storm: thick fog, weaker sun, greyer and flatter light, hazy sky
+  scene.fog.density = FOG_DENSITY * (1 + 2.6 * S);
+  scene.fog.color.copy(WX.base.fog).lerp(WX_STORM_FOG, S * 0.85);
+  sun.intensity = WX.base.sun * (1 - 0.7 * S);
+  hemi.intensity = WX.base.hemi * (1 + 0.6 * S);
+  renderer.toneMappingExposure = WX.base.exposure * (1 - 0.22 * S);
+  sky.material.uniforms.turbidity.value = WX.base.turb + 14 * S;
+  wxDome.visible = S > 0.01;
+  wxDome.position.copy(camera.position);
+  wxDomeMat.opacity = Math.min(0.92, S * 1.05);
+  wxDomeMat.color.copy(scene.fog.color);
+  sky.material.uniforms.rayleigh.value = WX.base.ray * (1 - 0.7 * S);
+}
 
 /* =========================================================
    Mountain Village: gondola stations to every trail
