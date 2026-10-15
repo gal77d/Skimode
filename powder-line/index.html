@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Powder Line</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="stage"></div>
+
+<div class="hud" id="hud" hidden>
+  <section class="speedo" aria-label="Run telemetry">
+    <div class="speed"><b id="spd">0</b><small>km/h</small></div>
+    <dl class="stats">
+      <div><dt>Distance</dt><dd id="dist">0 m</dd></div>
+      <div><dt>Altitude</dt><dd id="alt">2,840 m</dd></div>
+      <div><dt>Run time</dt><dd id="time">0:00.0</dd></div>
+      <div><dt>Top speed</dt><dd id="top">0 km/h</dd></div>
+      <div><dt>Score</dt><dd id="score">0</dd></div>
+      <div><dt>Air time</dt><dd id="air">—</dd></div>
+    </dl>
+    <div class="course" id="course" aria-hidden="true"><i id="prog"></i></div>
+    <div class="course-labels"><span>Start</span><span class="mid" id="lblPark">Park</span><span class="mid" id="lblPipe">Pipe</span><span>Finish</span></div>
+  </section>
+  <div class="meta">
+    <span class="wallet"><i class="coin"></i><strong id="coins">0</strong></span>
+    <span><strong id="zone">Piste</strong></span>
+    <span>Grade <strong id="grade">0°</strong></span>
+    <span id="fps">— fps</span>
+  </div>
+  <div class="toast" id="toast" aria-live="polite"><b id="toastTitle"></b><span id="toastSub"></span></div>
+  <div class="keys">
+    <span><kbd>A</kbd><kbd>D</kbd> steer · spin</span>
+    <span><kbd>W</kbd> tuck · front flip</span>
+    <span><kbd>S</kbd> brake · backflip</span>
+    <span><kbd>F</kbd> one-press backflip</span>
+    <span><kbd>Space</kbd> hold to crouch, release to pop · hold in air to grab</span>
+    <span><kbd>R</kbd> home screen</span>
+  </div>
+</div>
+
+<div class="touch" id="touch" hidden>
+  <div><button id="tL" aria-label="Steer left">◀</button><button id="tR" aria-label="Steer right">▶</button></div>
+  <div><button id="tB">Brake</button><button id="tT">Tuck</button><button id="tJ">Jump</button><button id="tF">Flip</button></div>
+</div>
+
+<div class="overlay" id="intro">
+  <div class="card">
+    <div class="eyebrow" id="introTrail">Valley Park</div>
+    <h1>Powder Line</h1>
+    <p id="introBlurb"></p>
+    <p>Carve with <strong>A</strong>/<strong>D</strong>, tuck <strong>W</strong>, brake <strong>S</strong>. Hold <strong>Space</strong> to crouch and release to pop — release right at the lip for a bigger jump. In the air, A/D spin, W/S flip, hold Space to grab. Land with skis matching the slope or you go down.</p>
+    <div class="facts" id="introFacts"></div>
+    <div class="actions">
+      <button class="btn" id="go" disabled>Building the mountain…</button>
+      <button class="btn ghost" id="openMap" type="button">Trail map</button>
+      <button class="btn ghost" id="openStore" type="button">Gear shop</button>
+      <button class="btn ghost" id="modeBtn" type="button" aria-pressed="false">Snowboard</button>
+      <span class="wallet big" title="Coins"><i class="coin"></i><strong id="homeCoins">0</strong> coins</span>
+    </div>
+    <div class="loading" id="loadMsg">Loading Three.js</div>
+  </div>
+</div>
+
+<div class="overlay" id="finish" hidden>
+  <div class="card">
+    <div class="eyebrow">Finish line</div>
+    <h1>Run complete</h1>
+    <div class="facts">
+      <span><strong id="fTime">0:00.0</strong>time</span>
+      <span><strong id="fTop">0</strong>top km/h</span>
+      <span><strong id="fScore">0</strong>score</span>
+      <span><strong id="fCoins">0</strong>coins earned</span>
+    </div>
+    <p id="liftInfo">The gondola climbs back to the top station. You can skip the ride at any time.</p>
+    <div class="actions">
+      <button class="btn" id="again" type="button">Take the gondola</button>
+      <button class="btn ghost" id="skipTop" type="button">Skip to the top</button>
+      <button class="btn ghost" id="finishMap" type="button">Trail map</button>
+      <button class="btn ghost" id="finishStore" type="button">Gear shop</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay mapview" id="mapView" hidden>
+  <div class="map-card" role="dialog" aria-modal="true" aria-labelledby="mapTitle">
+    <header class="store-head">
+      <div><div class="eyebrow">Trail map</div><h2 id="mapTitle">Pick a spot</h2></div>
+      <span class="wallet big" title="Coins"><i class="coin"></i><strong id="mapCoins">0</strong></span>
+      <button class="close" id="closeMap" type="button">Back</button>
+    </header>
+    <div class="map-body">
+      <div class="map-art" id="mapArt"></div>
+      <aside class="map-info">
+        <div id="mapInfo"></div>
+        <button class="btn" id="rideTrail" type="button">Ride</button>
+        <p class="store-msg" id="mapMsg" aria-live="polite"></p>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<div class="ride" id="ride" hidden>
+  <div class="ride-card" role="status">
+    <div class="ride-head"><span class="eyebrow">Gondola · to the top</span><span class="ride-left" id="rideLeft">—</span></div>
+    <div class="course"><i id="rideProg"></i></div>
+    <div class="ride-row">
+      <span class="ride-alt">Altitude <strong id="rideAlt">—</strong></span>
+      <button class="btn" id="skipRide" type="button">Skip ride</button>
+    </div>
+    <p class="ride-hint"><kbd>A</kbd><kbd>D</kbd> look around · <kbd>Space</kbd> skip</p>
+  </div>
+</div>
+
+<div class="store" id="store" hidden>
+  <div class="store-panel" role="dialog" aria-modal="true" aria-labelledby="storeTitle">
+    <header class="store-head">
+      <div><div class="eyebrow">Gear shop</div><h2 id="storeTitle">Kit up</h2></div>
+      <span class="wallet big"><i class="coin"></i><strong id="storeCoins">0</strong></span>
+      <button class="close" id="closeStore" type="button" aria-label="Close the shop">Done</button>
+    </header>
+    <nav class="tabs" id="storeTabs" aria-label="Gear categories"></nav>
+    <div class="items" id="storeItems"></div>
+    <p class="store-msg" id="storeMsg" aria-live="polite"></p>
+    <p class="hint"><strong>Tap any item to try it on</strong> — the skier wears it right away; it comes off when you leave the shop unless you buy it. Earn coins by landing jumps: small kicker 10, medium 20, large 45, a lake gap 150, pipe air 15, any other air 5. Add 5 per 180° of spin, 25 per flip, 10 for a grab and 5 for a perfect pop, then ×1.5 for a stomped landing. Rails pay 3 per second. Skis and boots change how you ride; clothing and helmets are looks.</p>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module" src="game.js"></script>
+</body>
+</html>
