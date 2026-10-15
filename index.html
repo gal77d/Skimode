@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#a9cbea">
+  <title>Ski Mode</title>
+  <link rel="stylesheet" href="./css/style.css">
+
+  <!-- Three.js נטען מהאינטרנט (CDN), כך שאין צורך להתקין כלום -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+
+  <!-- הצגת שגיאות על המסך (עוזר למצוא בעיות בטלפון, שם אין קונסול) -->
+  <script>
+    function showError(msg) {
+      var box = document.getElementById('errorBox');
+      if (!box) return;
+      box.style.display = 'block';
+      box.textContent = msg;
+    }
+    window.addEventListener('error', function (e) {
+      showError('שגיאה: ' + (e.message || 'לא ידועה'));
+    });
+    window.addEventListener('DOMContentLoaded', function () {
+      if (location.protocol === 'file:') {
+        showError('פתחת את הקובץ ישירות מהמחשב. הדפדפן חוסם את זה. פתח עם Live Server ב-VS Code, או דרך הקישור של GitHub Pages.');
+        return;
+      }
+      setTimeout(function () {
+        if (!window.__gameLoaded) {
+          showError('המשחק לא נטען. בדוק חיבור לאינטרנט ורענן את הדף.');
+        }
+      }, 10000);
+    });
+  </script>
+</head>
+<body>
+  <!-- כאן המשחק מצויר -->
+  <canvas id="game"></canvas>
+
+  <!-- נתונים על המסך -->
+  <div id="hud">
+    <div id="speedBox"><span id="speed">0</span> <small>קמ״ש</small></div>
+    <div id="distBox">נותרו <span id="dist">0</span> מ׳</div>
+  </div>
+  <div id="fps">FPS: --</div>
+
+  <!-- שליטה במגע -->
+  <div id="controls">
+    <div id="joyZone">
+      <div id="joyBase"><div id="joyStick"></div></div>
+    </div>
+    <button id="jumpBtn" class="btn" type="button">קפיצה</button>
+    <button id="brakeBtn" class="btn" type="button">בלימה</button>
+    <button id="tiltBtn" class="smallBtn" type="button">📱 הטיה: כבוי</button>
+    <button id="resetBtn" class="smallBtn" type="button">↺ התחלה</button>
+  </div>
+
+  <!-- מסך פתיחה -->
+  <div id="overlay">
+    <div class="card">
+      <h1>⛷️ Ski Mode</h1>
+      <p class="sub">שלב 1: מדרון ושליטה</p>
+      <ul>
+        <li><b>ג׳ויסטיק (צד שמאל):</b> ימינה/שמאלה = פנייה, למעלה = כפיפה למהירות, למטה = בלימה</li>
+        <li><b>קפיצה</b> ו<b>בלימה</b>: הכפתורים בצד ימין</li>
+        <li><b>📱 הטיה:</b> היגוי ע״י הטיית הטלפון</li>
+        <li><b>מחשב:</b> חיצים / WASD, רווח לקפיצה, R להתחלה</li>
+      </ul>
+      <button id="startBtn" type="button">התחל לגלוש</button>
+    </div>
+  </div>
+
+  <div id="errorBox"></div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
