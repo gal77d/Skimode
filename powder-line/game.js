@@ -1144,7 +1144,7 @@ const P = {
   pos: new THREE.Vector3(), vel: new THREE.Vector3(),
   fwd: new THREE.Vector3(0, 0, -1), right: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 1, 0), lastN: new THREE.Vector3(0, 1, 0),
   steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0,
-  mode: 'ground', yawVis: 0, sinceGround: 0, lastLip: 99, popped: false, prevSpace: false,
+  mode: 'ground', yawVis: 0, sw: false, sinceGround: 0, lastLip: 99, popped: false, prevSpace: false,
   airT: 0, q: new THREE.Quaternion(), q0: new THREE.Quaternion(), v0: new THREE.Vector3(0, 0, -1), trajW: 1,
   spin: 0, flip: 0, grabT: 0, autoFlip: 0, autoFlipRate: 0, wantFlip: false,
   onRail: null, railT: 0, railSide: 1,
@@ -1166,7 +1166,7 @@ function resetPlayer() {
   P.vel.set(0, 0, 0);
   courseDir(s0, P.fwd);
   surfNormal(P.pos.x, P.pos.z, P.up); P.lastN.copy(P.up);
-  Object.assign(P, { steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0, mode: 'ground', yawVis: 0,
+  Object.assign(P, { steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0, mode: 'ground', yawVis: 0, sw: false,
     sinceGround: 0, lastLip: 99, popped: false, airT: 0, spin: 0, flip: 0, grabT: 0, autoFlip: 0, wantFlip: false, onRail: null, railT: 0, crashT: 0,
     time: 0, top: 0, finished: false, score: 0, lastAir: 0, runCoins: 0, launch: '', perfect: false, inLake: false });
   camState.init = false;
@@ -1359,7 +1359,9 @@ function groundStep(dt, inp, released) {
   const omega = P.steer * omegaMax;
   P.lean = damp(P.lean, clamp(Math.atan2(sp * omega, G), -0.95, 0.95) * (1 - 0.5 * P.brake), 6, dt);
   P.up.lerp(g2.n, 1 - Math.exp(-12 * dt)).normalize();
-  P.yawVis = dampAngle(P.yawVis, 0, Math.abs(P.yawVis) > 2 ? 2.4 : 7, dt);
+  // switch: after landing backwards the rider keeps skiing backwards until the next 180
+  const yawTarget = P.sw ? (P.yawVis >= 0 ? Math.PI : -Math.PI) : 0;
+  P.yawVis = dampAngle(P.yawVis, yawTarget, 7, dt);
   return sp;
 }
 
@@ -1405,7 +1407,7 @@ function leaveRail() {
 /* ---------- airborne ---------- */
 function startAir(gi) {
   const fromRail = !!P.onRail;
-  if (fromRail) { leaveRail(); P.yawVis = 0; }
+  if (fromRail) { leaveRail(); P.yawVis = 0; P.sw = false; }
   // half-pipe coping assist: send the rider straight up so they come back into the pipe
   if (gi && gi.kind === 'pipe' && gi.region !== 'flat' && P.vel.y > 1) {
     const side = Math.sign(P.pos.x - centerX(-P.pos.z)) || 1;
@@ -1549,6 +1551,7 @@ function airStep(dt, inp, steerT, released) {
     _vt.set(P.vel.x, 0, P.vel.z); _vt.addScaledVector(_bu, -_vt.dot(_bu));   // horizontal travel only
     if (_vt.lengthSq() > 1) {
       _vt.normalize();
+      if (_bf.dot(_vt) < 0) _vt.negate();   // flying backwards: stay backwards
       const yawErr = Math.atan2(_tv.crossVectors(_bf, _vt).dot(_bu), _bf.dot(_vt));
       const step = clamp(yawErr, -3.2 * dt, 3.2 * dt);
       _qa.setFromAxisAngle(_bu, step);
@@ -1596,6 +1599,9 @@ function land(gi) {
   if (vtLen > 0.2) P.fwd.copy(_vt).normalize();
   else if (_bf.lengthSq() > 1e-4) P.fwd.copy(_bf);
   P.yawVis = Math.atan2(_tv2.crossVectors(P.fwd, _bf).dot(n), P.fwd.dot(_bf));
+  const wasSw = P.sw;
+  P.sw = Math.abs(P.yawVis) > Math.PI / 2;
+  if (P.sw !== wasSw && air > 0.25) toast(P.sw ? 'Riding switch' : 'Back to regular', 'good', P.sw ? 'skiing backwards' : 'facing forward');
   P.up.copy(_bu);
   P.lastN.copy(n);
   P.popped = false; P.charge = 0; P.autoFlip = 0;
@@ -1707,7 +1713,7 @@ function recover() {
   courseDir(-P.pos.z, P.fwd);
   surfNormal(P.pos.x, P.pos.z, P.up);
   P.lastN.copy(P.up);
-  P.yawVis = 0; P.lean = 0; P.landComp = 0.9; P.comp = 0;
+  P.yawVis = 0; P.sw = false; P.lean = 0; P.landComp = 0.9; P.comp = 0;
 }
 
 /* =========================================================
@@ -1734,6 +1740,8 @@ function animateSkier(dt, speed) {
   Wt.crash = damp(Wt.crash, P.mode === 'crash' ? 1 : 0, 8, dt);
   if (P.mode !== 'air') P.grab = damp(P.grab, 0, 8, dt);
   const ground = 1 - Wt.air;
+  // the body is turned by yawVis; riding backwards the lean has to be mirrored to stay into the turn
+  const lean = P.onRail ? P.lean : P.lean * Math.cos(P.yawVis);
   for (const k in pose) {
     let v = lerp(lerp(POSE.stance[k], POSE.tuck[k], P.tuck), POSE.brake[k], P.brake);
     v = lerp(v, POSE.crouch[k], P.charge * ground * (1 - Wt.rail));
@@ -1761,7 +1769,7 @@ function animateSkier(dt, speed) {
   }
   if (P.mode === 'gondola') skier.root.quaternion.copy(_tq);
   else skier.root.quaternion.slerp(_tq, 1 - Math.exp(-(P.mode === 'crash' ? 30 : 22) * dt));
-  skier.rig.rotation.z = P.lean * (1 - Wt.crash) * (BOARD ? 1.15 : 1);
+  skier.rig.rotation.z = lean * (1 - Wt.crash) * (BOARD ? 1.15 : 1);
 
   // skis: wedge when braking, pulled up under the body in the air, flailing in a crash
   const plow = BOARD ? 0 : P.brake * ground * (1 - Wt.rail) * (1 - Wt.crash);
@@ -1777,11 +1785,11 @@ function animateSkier(dt, speed) {
   // pelvis + spine
   const torso = pose.torso + comp * 0.55 + Math.sin(animT * 5.1) * 0.5 * fl;
   skier.pelvis.position.set(0, Math.max(0.44, pose.hipH - comp + breathe), pose.hipZ + comp * 0.12);
-  skier.pelvis.rotation.set(-torso * 0.45, 0, -P.lean * 0.15);
-  skier.spine.rotation.set(-torso * 0.3, 0, -P.lean * 0.22 + Math.sin(animT * 4.3) * 0.25 * fl);
+  skier.pelvis.rotation.set(-torso * 0.45, 0, -lean * 0.15);
+  skier.spine.rotation.set(-torso * 0.3, 0, -lean * 0.22 + Math.sin(animT * 4.3) * 0.25 * fl);
   const by = BOARD ? 1 : 0;   // snowboarder: shoulders open and head turned to look down the fall line
-  skier.chest.rotation.set(-torso * 0.25 + breathe * 2, -0.4 * by, -P.lean * 0.15);
-  skier.neck.rotation.set(torso * 0.8, -0.95 * by, P.lean * 0.3);
+  skier.chest.rotation.set(-torso * 0.25 + breathe * 2, -0.4 * by, -lean * 0.15);
+  skier.neck.rotation.set(torso * 0.8, -0.95 * by, lean * 0.3);
 
   solveLeg(skier.legL, skier.skiL);
   solveLeg(skier.legR, skier.skiR);
@@ -1789,8 +1797,8 @@ function animateSkier(dt, speed) {
   // arms: inside hand drops in turns, windmill for balance in the air, flail in a crash
   const balance = Wt.air * (1 - P.grab);
   for (const arm of [skier.armL, skier.armR]) {
-    const inside = arm.side * -Math.sign(P.lean || 1) > 0 ? 1 : -1;
-    const turnK = Math.min(1, Math.abs(P.lean) * 1.6) * ground;
+    const inside = arm.side * -Math.sign(lean || 1) > 0 ? 1 : -1;
+    const turnK = Math.min(1, Math.abs(lean) * 1.6) * ground;
     const ph = arm.side * 1.7;
     const ax = pose.armX + inside * -0.15 * turnK
       + Math.sin(animT * 4.8 + ph) * 0.3 * balance
