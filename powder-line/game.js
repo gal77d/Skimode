@@ -1630,8 +1630,8 @@ function land(gi) {
   // a clean landing turns most of the air speed into speed down the slope
   const keep = 1 - 0.1 * (1 - Math.abs(yawDot)) - 0.04 * smooth(5, 14, vn);
   let landSpeed = Math.max(vtLen, P.vel.length() * 0.92) * keep;
-  // landing on the jump's own landing slope: you ride away at the speed you had when you reached its ramp
-  if (gi.feat && gi.feat === P.rampFeat && gi.region === 'landing' && P.rampSpeed > 0) landSpeed = P.rampSpeed;
+  // after a jump off a ramp you ride away at exactly the speed you had on that ramp, wherever you land
+  if (P.rampFeat && P.rampSpeed > 0 && !gi.rail) landSpeed = P.rampSpeed;
   P.rampFeat = null;
   if (vtLen > 0.2) P.vel.copy(_vt).setLength(landSpeed);
   else P.vel.copy(_vt).multiplyScalar(keep);
@@ -3621,6 +3621,10 @@ function mpUpdate(dt) {
     if (p.ghost.position.distanceToSquared(_gp) > 400) p.ghost.position.copy(_gp);   // teleported (gondola skip, new run)
     else p.ghost.position.lerp(_gp, 1 - Math.exp(-14 * dt));
     p.ghost.quaternion.slerp(p.q, 1 - Math.exp(-12 * dt));
+    // name tag only when the friend is close: fades out between 25 and 40 m
+    const lbl = p.ghost.userData.label, dist = camera.position.distanceTo(p.ghost.position);
+    lbl.material.opacity = 1 - smooth(25, 40, dist);
+    lbl.visible = lbl.material.opacity > 0.01;
   }
   // HUD: players here + live race position
   const hud = $('mpHud');
