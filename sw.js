@@ -2,7 +2,7 @@
 // נפתחת מהר ועובדת גם בלי אינטרנט (אחרי הפעם הראשונה).
 // קבצים שלנו: קודם מנסים מהאינטרנט (כדי לקבל עדכונים), ואם אין — מהזיכרון.
 // ספריות מה-CDN (גרסה קבועה): קודם מהזיכרון, כי הן לא משתנות.
-const CACHE = 'skimode-v2';
+const CACHE = 'skimode-v3';
 const CORE = [
   './',
   './index.html',
@@ -65,9 +65,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // הקבצים שלנו: מהרשת קודם, ואם אין אינטרנט — מהזיכרון
+  // הקבצים שלנו: מהרשת קודם, ואם אין אינטרנט — מהזיכרון.
+  // דף שלם (navigate) חייב להיטען לפי הכתובת שלו, אחרת הדפדפן נכשל ומקבלים עותק ישן.
+  const netReq = req.mode === 'navigate' ? new Request(url.href, { cache: 'no-cache', credentials: 'same-origin' }) : new Request(req, { cache: 'no-cache' });
   event.respondWith(
-    fetch(req, { cache: 'no-cache' })
+    fetch(netReq)
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

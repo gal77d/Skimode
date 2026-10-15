@@ -9,6 +9,23 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const $ = (id) => document.getElementById(id);
+
+// Self-repair: an old offline copy of the page can be served together with newer code.
+// If the page is missing parts this code needs, drop the offline copy and load fresh once.
+const PAGE_VERSION = 3;
+if (Number(document.documentElement.dataset.pageVersion || 0) < PAGE_VERSION) {
+  const tried = sessionStorage.getItem('pl-fresh-reload');
+  if (!tried) {
+    sessionStorage.setItem('pl-fresh-reload', '1');
+    (async () => {
+      try { for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) { /* none */ }
+      try { for (const k of await caches.keys()) await caches.delete(k); } catch (e) { /* none */ }
+      location.reload();
+    })();
+  }
+  throw new Error('Old page version, reloading a fresh copy');
+}
+sessionStorage.removeItem('pl-fresh-reload');
 $('loadMsg').textContent = 'Generating terrain, forest and skier';
 
 /* =========================================================
@@ -3405,7 +3422,7 @@ function mpConnect(i, code) {
   if (MP.room !== code) return;
   if (i >= MP_BROKERS.length) { mpSetStatus('Could not reach the room server. Try again later.'); return; }
   const c = MP.lib.connect(MP_BROKERS[i], {
-    clientId: 'pl_' + MP.id + '_' + mpRand(4), clean: true, keepalive: 30, connectTimeout: 7000, reconnectPeriod: 2500,
+    clientId: 'pl_' + MP.id + '_' + mpRand(4), clean: true, keepalive: 15, connectTimeout: 7000, reconnectPeriod: 2000,
     will: { topic: mpTopic(), payload: JSON.stringify({ t: 'leave', id: MP.id }), qos: 0, retain: false },
   });
   MP.client = c;
@@ -3441,6 +3458,14 @@ function mpLeave(silent) {
   }
 }
 addEventListener('pagehide', () => { if (MP.connected) mpSend({ t: 'leave' }); });
+// Phones freeze the page in the background (e.g. while you send the link on WhatsApp) and the
+// connection dies quietly. Coming back: reconnect straight away and announce yourself again.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || !MP.room) return;
+  MP.sendT = 0;
+  if (MP.client && !MP.client.connected) { mpSetStatus('Reconnecting…'); try { MP.client.reconnect(); } catch (e) { /* retry timer */ } }
+  else if (!MP.client && MP.lib) mpConnect(0, MP.room);
+});
 
 function mpOnMessage(payload) {
   let m;
@@ -3594,7 +3619,7 @@ function mpUpdate(dt) {
   // HUD: players here + live race position
   const hud = $('mpHud');
   hud.hidden = false;
-  let txt = `Room ${MP.room} · ${MP.connected ? MP.peers.size + 1 : '…'} riders`;
+  let txt = MP.connected ? `Room ${MP.room} · ${MP.peers.size + 1} riders` : `Room ${MP.room} · reconnecting…`;
   const R = MP.race;
   if (R && R.started && !R.finished) {
     const racers = [...MP.peers.values()].filter((p) => p.rc === R.rid || p.fin);
