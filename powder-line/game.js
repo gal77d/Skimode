@@ -403,7 +403,10 @@ function sampleHorizon() {
   } catch (e) { renderer.setRenderTarget(null); return fallback; }
 }
 const horizon = sampleHorizon();
-scene.fog = new THREE.FogExp2(horizon.clone().multiplyScalar(0.96), 0.00040);
+// Render distance (like chunks in Minecraft): the valley fades out a little before the edge of the
+// loaded chunks, so the end of the world is never seen. The big peaks keep a lighter haze (see backdrop).
+const FOG_DENSITY = 0.0021;
+scene.fog = new THREE.FogExp2(horizon.clone().multiplyScalar(0.96), FOG_DENSITY);
 
 // Lights
 const sun = new THREE.DirectionalLight(0xffd8b0, 3.1);
@@ -577,6 +580,7 @@ function buildBackdrop() {
   g.translate(0, 0, -RUN / 2);
   const p = g.attributes.position;
   const elev = new Float32Array(p.count);
+  const insideA = new Float32Array(p.count);
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), z = p.getZ(i);
     const s = -z, sc = clamp(s, 0, RUN);
@@ -586,6 +590,7 @@ function buildBackdrop() {
     let h = baseY(s) + wallH(Math.abs(d));
     const inside = (1 - smooth(540, 600, Math.abs(x))) * (1 - smooth(60, 120, z)) * (1 - smooth(RUN + 60, RUN + 160, s));
     h -= 30 * inside;
+    insideA[i] = smooth(0.0, 0.6, inside + (1 - smooth(450, 700, dc)) * 0.6);
     const pk = T.peaks || [480, 1700, 1];
     const mask = smooth(pk[0], pk[1], dc);
     h += mask * (ridged(x * 0.00042, z * 0.00042, 5) * 1500 * pk[2] + 120);
@@ -607,8 +612,20 @@ function buildBackdrop() {
     col[i * 3] = r; col[i * 3 + 1] = gg; col[i * 3 + 2] = b;
   }
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setAttribute('aInside', new THREE.BufferAttribute(insideA, 1));
   const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92 });
   mat.userData.perWorld = true;
+  // valley floor/walls fog out with the render distance; distant peaks only get a light haze
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = 'attribute float aInside;\nvarying float vInside;\n' +
+      sh.vertexShader.replace('#include <fog_vertex>', '#include <fog_vertex>\n vInside = aInside;');
+    sh.fragmentShader = 'varying float vInside;\n' + sh.fragmentShader.replace('#include <fog_fragment>', `
+      #ifdef USE_FOG
+        float fogD = mix(0.00028, ${FOG_DENSITY.toFixed(5)}, vInside);
+        float fogF = 1.0 - exp(-fogD * fogD * vFogDepth * vFogDepth);
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, fogF);
+      #endif`);
+  };
   const m = new THREE.Mesh(g, mat);
   m.receiveShadow = false; m.castShadow = false;
   world.add(m);
@@ -2470,10 +2487,45 @@ function buildWorld() {
   buildPark();
   buildLift();
   buildBackdrop();
-  for (let i = 0; i < NCH; i++) {
-    const ch = buildTerrainChunk(i);
-    populateChunk(ch, i);
-    chunks.push(ch);
+  chunks.length = NCH;
+  chunks.fill(null);
+  streamChunks(Z_START - 12, true);   // the start area is ready before the first frame
+}
+
+/* ---------- chunk streaming (like Minecraft): load ahead, delete behind ----------
+   Only the chunks near the camera exist. Missing chunks right next to the camera are built at once;
+   the rest are built one per frame so the game never freezes. Chunks that fall out of range are
+   removed and their memory freed. */
+const AHEAD = 4, BEHIND = 2;
+function loadChunk(i) {
+  const ch = buildTerrainChunk(i);
+  populateChunk(ch, i);
+  chunks[i] = ch;
+}
+function unloadChunk(i) {
+  const ch = chunks[i];
+  if (!ch) return;
+  for (const m of [ch.terrain, ...ch.treesHi, ...ch.treesLo, ...ch.rocks]) {
+    world.remove(m);
+    if (m.isInstancedMesh) m.dispose();   // shared tree/rock shapes are kept
+  }
+  ch.terrain.geometry.dispose();
+  chunks[i] = null;
+}
+function streamChunks(cz, all) {
+  if (!NCH) return;
+  const ci = Math.floor((Z_START - cz) / CHUNK);
+  const riding = ride.active;   // the gondola camera looks all around
+  const lo = Math.max(0, ci - (riding ? 3 : BEHIND));
+  const hi = Math.min(NCH - 1, ci + (riding ? 3 : AHEAD));
+  for (let i = 0; i < NCH; i++) if (chunks[i] && (i < lo || i > hi)) unloadChunk(i);
+  let budget = all ? 99 : 1;
+  // nearest first: the camera's own chunk and its neighbours are always built immediately
+  for (let d = 0; d <= Math.max(ci - lo, hi - ci); d++) {
+    for (const i of d === 0 ? [ci] : [ci + d, ci - d]) {
+      if (i < lo || i > hi || chunks[i]) continue;
+      if (d <= 1 || budget > 0) { loadChunk(i); if (d > 1) budget--; }
+    }
   }
 }
 // Tear down the current trail's meshes (shared tree and rock shapes are kept)
@@ -2491,7 +2543,9 @@ function disposeWorld() {
 }
 function updateLOD() {
   const cz = camera.position.z;
+  streamChunks(cz, false);
   for (const ch of chunks) {
+    if (!ch) continue;
     const dz = cz > ch.zTop ? cz - ch.zTop : (cz < ch.zBot ? ch.zBot - cz : 0);
     const hi = dz < 360;
     for (const m of ch.treesHi) m.visible = hi;
