@@ -180,6 +180,13 @@ body.playing #controls {
   right: calc(env(safe-area-inset-right) + 150px);
 }
 
+#muteBtn {
+  top: calc(env(safe-area-inset-top) + 92px);
+  left: calc(env(safe-area-inset-left) + 14px);
+  min-width: 46px;
+  padding: 0;
+}
+
 /* ===== מסך פתיחה ===== */
 #overlay {
   position: fixed;
