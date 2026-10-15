@@ -1185,7 +1185,7 @@ function resetPlayer() {
   surfNormal(P.pos.x, P.pos.z, P.up); P.lastN.copy(P.up);
   Object.assign(P, { steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0, mode: 'ground', yawVis: 0, sw: false,
     sinceGround: 0, lastLip: 99, popped: false, airT: 0, spin: 0, flip: 0, grabT: 0, autoFlip: 0, wantFlip: false, onRail: null, railT: 0, crashT: 0,
-    time: 0, top: 0, finished: false, score: 0, lastAir: 0, runCoins: 0, launch: '', perfect: false, inLake: false });
+    time: 0, top: 0, finished: false, score: 0, lastAir: 0, runCoins: 0, launch: '', perfect: false, inLake: false, rampFeat: null, rampSpeed: 0 });
   camState.init = false;
 }
 
@@ -1276,6 +1276,8 @@ function groundStep(dt, inp, released) {
   P.lastN.copy(n);
   P.sinceGround = 0;
   if (gi.kind === 'kicker') P.lastLip = gi.region === 'ramp' ? gi.lip : 99; else P.lastLip = 99;
+  // remember the speed the rider brings onto a kicker's ramp: landing on that kicker's slope gives it back
+  if (gi.kind === 'kicker' && gi.region === 'ramp' && gi.feat && P.rampFeat !== gi.feat) { P.rampFeat = gi.feat; P.rampSpeed = P.vel.length(); }
 
   // keep the ski direction on the tangent plane (works on half-pipe walls too)
   const f = P.fwd;
@@ -1610,7 +1612,10 @@ function land(gi) {
   P.mode = 'ground';
   // a clean landing turns most of the air speed into speed down the slope
   const keep = 1 - 0.1 * (1 - Math.abs(yawDot)) - 0.04 * smooth(5, 14, vn);
-  const landSpeed = Math.max(vtLen, P.vel.length() * 0.92) * keep;
+  let landSpeed = Math.max(vtLen, P.vel.length() * 0.92) * keep;
+  // landing on the jump's own landing slope: you ride away at the speed you had when you reached its ramp
+  if (gi.feat && gi.feat === P.rampFeat && gi.region === 'landing' && P.rampSpeed > 0) landSpeed = P.rampSpeed;
+  P.rampFeat = null;
   if (vtLen > 0.2) P.vel.copy(_vt).setLength(landSpeed);
   else P.vel.copy(_vt).multiplyScalar(keep);
   if (vtLen > 0.2) P.fwd.copy(_vt).normalize();
@@ -1656,7 +1661,7 @@ function scoreTrick(air, sw, vn) {
 function crash(reason, n) {
   if (P.mode === 'air') P.crashQ.copy(P.q); else groundQuat(P.up, P.crashQ);
   if (P.onRail) P.onRail = null;
-  P.mode = 'crash'; P.crashT = 0;
+  P.mode = 'crash'; P.crashT = 0; P.rampFeat = null;
   const sp = P.vel.length();
   _tv.copy(P.vel); _tv.y = 0;
   if (_tv.lengthSq() < 1e-4) _tv.copy(P.fwd).setY(0);
@@ -3645,6 +3650,14 @@ $('mpOpen').addEventListener('click', mpOpenPanel);
 $('mpOpen2').addEventListener('click', () => { $('finish').hidden = true; mpOpenPanel(); });
 $('mpClose').addEventListener('click', () => { $('mpPanel').hidden = true; if (!started && !ride.active) $('intro').hidden = false; else if (P.finished) $('finish').hidden = false; });
 $('mpCreate').addEventListener('click', () => mpJoin(mpRand(6, MP_CODE_CHARS)));
+function mpJoinTyped() {
+  const code = $('mpJoinCode').value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length < 4) { mpSetStatus('Type the room code your friend sent you (at least 4 letters).'); return; }
+  $('mpJoinCode').blur();
+  mpJoin(code);
+}
+$('mpJoinBtn').addEventListener('click', mpJoinTyped);
+$('mpJoinCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); mpJoinTyped(); } });
 $('mpLeave').addEventListener('click', () => { mpLeave(false); mpRender(); });
 $('mpRace').addEventListener('click', mpRaceButton);
 $('mpCopy').addEventListener('click', async () => {

@@ -182,3 +182,11 @@ button,a,input,select{touch-action:manipulation}
 .race-results li strong{font-family:var(--display);font-size:18px}
 .countdown{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:6;font-family:var(--display);font-weight:700;font-size:min(34vw,220px);color:#fff;text-shadow:0 6px 30px rgba(0,0,0,.45)}
 .btn:disabled{opacity:.5}
+.mp-join{display:flex;gap:8px}
+.mp-join input{flex:1;min-width:0;font:700 18px var(--display);letter-spacing:.18em;text-transform:uppercase;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--panel-edge);border-radius:6px;padding:10px 12px;-webkit-user-select:text;user-select:text}
+.mp-join input::placeholder{letter-spacing:.06em;color:var(--ink-dim);font-weight:500}
+#mpOut{display:grid;gap:12px}
+#mpOut[hidden]{display:none}
+#mpPanel .card,#mpOut,#mpIn{grid-template-columns:minmax(0,1fr)}
+.mp-join input{width:0}
+.mp-join .btn{flex:none}
