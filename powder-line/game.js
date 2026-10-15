@@ -3204,6 +3204,7 @@ function frame() {
   updateShadow();
   updateLOD();
   spray.update(dt);
+  mpUpdate(dt);
   if (LAKE && LAKE.mat) { LAKE.mat.normalMap.offset.x += dt * 0.012; LAKE.mat.normalMap.offset.y += dt * 0.007; }
   spray.mat.uniforms.uScale.value = (renderer.domElement.height * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
   if (started) updateHUD(dt, speed);
@@ -3219,6 +3220,7 @@ function finishRun() {
   $('fCoins').textContent = nf.format(P.runCoins || 0);
   $('liftInfo').textContent = `The gondola climbs ${(LIFT.up.L / 1000).toFixed(1)} km back to the top station, about ${fmtClock(LIFT.up.L / GOND.v)}. You can skip the ride at any time.`;
   $('finish').hidden = false;
+  mpOnFinish();
   $('again').focus();
 }
 
@@ -3288,6 +3290,374 @@ $('again').addEventListener('click', startGondola);
 $('skipTop').addEventListener('click', () => { $('finish').hidden = true; arriveTop(); });
 $('skipRide').addEventListener('click', skipRide);
 
+/* =========================================================
+   Multiplayer: private rooms over a public MQTT relay
+   ---------------------------------------------------------
+   The game has no server of its own, so players meet on a free public MQTT broker.
+   A room is a random code; only people with the link know it. Every player sends
+   its position ~8 times a second, and sees the others as ghost skiers with name tags.
+   "Start a race" puts everyone in the room on the same trail with a shared countdown.
+   Everything received is treated as untrusted: numbers are checked, names shown as text.
+   ========================================================= */
+const MP_LIB = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.esm.js';
+const MP_BROKERS = (() => {
+  const b = new URLSearchParams(location.search).get('broker');   // local testing only
+  if (b) { try { const u = new URL(b); if (['localhost', '127.0.0.1'].includes(u.hostname)) return [b]; } catch (e) { /* ignore */ } }
+  return ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
+})();
+const MP_COLORS = [0x3f7cff, 0x2ecc71, 0xf4c542, 0xb55cff, 0x00c2d1, 0xff4d8d, 0xff8c1a, 0xe8eef6];
+const MP_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const mpRand = (n, chars = 'abcdefghijklmnopqrstuvwxyz0123456789') => {
+  const a = new Uint32Array(n); crypto.getRandomValues(a);
+  return Array.from(a, (v) => chars[v % chars.length]).join('');
+};
+const MP = {
+  lib: null, client: null, room: '', id: mpRand(10), name: '', connected: false, status: '',
+  peers: new Map(), sendT: 0, uiT: 0, race: null,
+};
+try { MP.name = (localStorage.getItem('powderline.name') || '').slice(0, 16); } catch (e) { /* not stored */ }
+if (!MP.name) MP.name = 'Rider ' + (10 + Math.floor(Math.random() * 90));
+const mpTopic = () => `powderline/v1/${MP.room}/m`;
+const mpNum = (v, lim = 1e6) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < lim ? v : null);
+const mpStr = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+const mpColor = (id) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0; return MP_COLORS[h % MP_COLORS.length]; };
+const mpHex = (c) => '#' + c.toString(16).padStart(6, '0');
+const mpLink = () => `${location.origin}${location.pathname}?room=${MP.room}`;
+
+/* ---------- ghost skiers (light models so several friends stay smooth on a phone) ---------- */
+const GH = {
+  ski: new THREE.BoxGeometry(0.08, 0.025, 1.7),
+  leg: new THREE.CapsuleGeometry(0.075, 0.55, 4, 8),
+  torso: new THREE.CapsuleGeometry(0.17, 0.36, 4, 10),
+  arm: new THREE.CapsuleGeometry(0.05, 0.42, 3, 6),
+  head: new THREE.SphereGeometry(0.135, 14, 10),
+  pole: new THREE.CylinderGeometry(0.01, 0.01, 1.15, 5),
+  dark: new THREE.MeshStandardMaterial({ color: 0x1d232b, roughness: 0.7 }),
+  helmet: new THREE.MeshStandardMaterial({ color: 0xf1f1ee, roughness: 0.35 }),
+  metal: new THREE.MeshStandardMaterial({ color: 0xb8c0c8, roughness: 0.3, metalness: 0.8 }),
+};
+function makeLabel(text, color) {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
+  const c = cv.getContext('2d');
+  c.fillStyle = 'rgba(10,19,32,0.72)';
+  c.beginPath(); c.roundRect(4, 8, 248, 48, 24); c.fill();
+  c.fillStyle = mpHex(color); c.beginPath(); c.arc(32, 32, 10, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff'; c.font = '600 28px Barlow, system-ui, sans-serif'; c.textBaseline = 'middle';
+  c.fillText(text, 52, 33, 192);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, sizeAttenuation: false }));
+  sp.scale.set(0.28, 0.07, 1); sp.position.y = 2.15; sp.renderOrder = 20;
+  return sp;
+}
+function makeGhost(color, name) {
+  const root = new THREE.Group();
+  const jacket = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const add = (geo, mat, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); root.add(m); return m; };
+  for (const s of [-1, 1]) {
+    add(GH.ski, GH.dark, s * 0.12, 0.02, 0);
+    add(GH.leg, GH.dark, s * 0.12, 0.45, 0.03, 0.18);
+    add(GH.arm, jacket, s * 0.27, 1.02, -0.12, 0.9, -s * 0.25);
+    add(GH.pole, GH.metal, s * 0.33, 0.55, 0.05, -0.35);
+  }
+  add(GH.torso, jacket, 0, 1.0, 0.06, -0.35);
+  add(GH.head, GH.helmet, 0, 1.47, -0.1);
+  const label = makeLabel(name, color);
+  root.add(label);
+  root.userData = { jacket, label };
+  scene.add(root);
+  return root;
+}
+function dropGhost(p) {
+  if (!p.ghost) return;
+  scene.remove(p.ghost);
+  p.ghost.userData.jacket.dispose();
+  p.ghost.userData.label.material.map.dispose(); p.ghost.userData.label.material.dispose();
+  p.ghost = null;
+}
+
+/* ---------- connection ---------- */
+function mpSetStatus(s) { MP.status = s; mpRender(); }
+function mpSend(msg) {
+  if (!MP.client || !MP.connected) return;
+  msg.id = MP.id; msg.n = MP.name;
+  try { MP.client.publish(mpTopic(), JSON.stringify(msg), { qos: 0 }); } catch (e) { /* dropped */ }
+}
+async function mpJoin(code) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+  if (code.length < 4) return;
+  if (MP.room === code && MP.client) return;
+  mpLeave(true);
+  MP.room = code;
+  const url = new URL(location.href); url.searchParams.set('room', code);
+  history.replaceState(null, '', url);
+  mpSetStatus('Connecting…');
+  if (!MP.lib) {
+    try { const mod = await import(MP_LIB); MP.lib = mod.default || mod; } catch (e) { mpSetStatus('Could not load multiplayer (no internet?)'); return; }
+  }
+  mpConnect(0, code);
+}
+function mpConnect(i, code) {
+  if (MP.room !== code) return;
+  if (i >= MP_BROKERS.length) { mpSetStatus('Could not reach the room server. Try again later.'); return; }
+  const c = MP.lib.connect(MP_BROKERS[i], {
+    clientId: 'pl_' + MP.id + '_' + mpRand(4), clean: true, keepalive: 30, connectTimeout: 7000, reconnectPeriod: 2500,
+    will: { topic: mpTopic(), payload: JSON.stringify({ t: 'leave', id: MP.id }), qos: 0, retain: false },
+  });
+  MP.client = c;
+  let ok = false;
+  c.on('connect', () => {
+    ok = true; MP.connected = true;
+    c.subscribe(mpTopic(), { qos: 0 });
+    MP.sendT = 0;
+    mpSetStatus('Connected');
+  });
+  c.on('reconnect', () => { if (MP.client === c) mpSetStatus('Reconnecting…'); });
+  c.on('close', () => { if (MP.client === c) MP.connected = false; });
+  c.on('message', (topic, payload) => { if (MP.client === c) mpOnMessage(payload); });
+  setTimeout(() => {
+    if (!ok && MP.client === c) { c.end(true); MP.client = null; mpConnect(i + 1, code); }
+  }, 8000);
+}
+function mpLeave(silent) {
+  if (MP.client) {
+    if (MP.connected) mpSend({ t: 'leave' });
+    const c = MP.client; MP.client = null;
+    setTimeout(() => c.end(true), 150);
+  }
+  MP.connected = false;
+  for (const p of MP.peers.values()) dropGhost(p);
+  MP.peers.clear();
+  MP.race = null;
+  MP.room = '';
+  if (!silent) {
+    const url = new URL(location.href); url.searchParams.delete('room');
+    history.replaceState(null, '', url);
+    mpSetStatus('');
+  }
+}
+addEventListener('pagehide', () => { if (MP.connected) mpSend({ t: 'leave' }); });
+
+function mpOnMessage(payload) {
+  let m;
+  try { m = JSON.parse(typeof payload === 'string' ? payload : new TextDecoder().decode(payload)); } catch (e) { return; }
+  if (!m || typeof m !== 'object') return;
+  const id = mpStr(m.id, 24);
+  if (!id || id === MP.id) return;
+  const now = performance.now();
+  if (m.t === 'leave') { const p = MP.peers.get(id); if (p) { dropGhost(p); MP.peers.delete(id); mpRender(); } return; }
+  let p = MP.peers.get(id);
+  if (!p) {
+    p = { id, name: '', color: mpColor(id), pos: new THREE.Vector3(), vel: new THREE.Vector3(), q: new THREE.Quaternion(), seen: now, rt: now, tr: '', home: true, d: 0, rc: '', ghost: null };
+    MP.peers.set(id, p);
+    toast(`${mpStr(m.n, 16) || 'A friend'} joined`, 'good', `room ${MP.room}`);
+  }
+  p.seen = now;
+  const nm = mpStr(m.n, 16).trim();
+  if (nm && nm !== p.name) { p.name = nm; dropGhost(p); }
+  if (m.t === 's') {
+    const x = mpNum(m.x), y = mpNum(m.y), z = mpNum(m.z);
+    if (x === null || y === null || z === null) return;
+    p.pos.set(x, y, z);
+    p.vel.set(mpNum(m.vx, 500) || 0, mpNum(m.vy, 500) || 0, mpNum(m.vz, 500) || 0);
+    const qx = mpNum(m.qx, 2), qy = mpNum(m.qy, 2), qz = mpNum(m.qz, 2), qw = mpNum(m.qw, 2);
+    if (qx !== null && qy !== null && qz !== null && qw !== null) p.q.set(qx, qy, qz, qw).normalize();
+    p.rt = now;
+    p.tr = mpStr(m.tr, 20);
+    p.home = !!m.h;
+    p.d = mpNum(m.d) || 0;
+    p.rc = mpStr(m.rc, 12);
+  } else if (m.t === 'race') {
+    mpStartRace(mpStr(m.tr, 20), mpStr(m.rid, 12), p.name || 'A friend');
+  } else if (m.t === 'fin') {
+    const time = mpNum(m.time, 36000);
+    if (MP.race && mpStr(m.rid, 12) === MP.race.rid && time !== null && !MP.race.results.some((r) => r.id === id)) {
+      MP.race.results.push({ id, name: p.name || 'Friend', time, score: Math.max(0, Math.round(mpNum(m.score) || 0)), color: p.color });
+      p.fin = true;
+      mpRenderResults();
+    }
+  }
+}
+
+/* ---------- race ---------- */
+function mpRaceButton() {
+  if (!MP.connected) return;
+  const rid = mpRand(8);
+  mpSend({ t: 'race', tr: T.id, rid });
+  mpStartRace(T.id, rid, 'You');
+}
+function mpStartRace(tr, rid, who) {
+  if (!rid || (MP.race && MP.race.rid === rid)) return;
+  if (!TRAILS.some((t) => t.id === tr)) return;
+  MP.race = { rid, tr, at: performance.now() + 5500, ready: false, started: false, finished: false, results: [], who };
+  for (const p of MP.peers.values()) p.fin = false;
+  $('mpPanel').hidden = true; $('finish').hidden = true; $('mapView').hidden = true;
+  if (storeOpen) closeStore();
+  if (ride.active) endRide();
+  if (T.id !== tr) chooseTrail(tr, false);
+  $('raceResults').hidden = true;
+  toast('Race!', 'good', `${who} started a race on ${TRAILS.find((t) => t.id === tr).name}`);
+}
+function mpRaceStep() {
+  const R = MP.race;
+  if (!R || R.started) return;
+  const cd = $('countdown');
+  if ($('go').disabled) return;   // the trail is still being built
+  if (!R.ready) {
+    R.ready = true;
+    $('intro').hidden = true; $('finish').hidden = true;
+    resetPlayer();
+    started = true; P.running = false;
+    $('hud').hidden = false;
+    if (isCoarse) $('touch').hidden = false;
+  }
+  const left = R.at - performance.now();
+  cd.hidden = false;
+  if (left > 0) cd.textContent = String(Math.ceil(left / 1000));
+  else {
+    R.started = true;
+    P.running = true; P.time = 0; clock.getDelta();
+    cd.textContent = 'GO!';
+    setTimeout(() => { if (MP.race === R) cd.hidden = true; }, 900);
+  }
+}
+function mpOnFinish() {
+  const R = MP.race;
+  if (!R || !R.started || R.finished) return;
+  R.finished = true;
+  mpSend({ t: 'fin', rid: R.rid, time: +P.time.toFixed(2), score: P.score });
+  R.results.push({ id: MP.id, name: MP.name + ' (you)', time: P.time, score: P.score, color: 0xff6a3d, me: true });
+  mpRenderResults();
+}
+function mpRenderResults() {
+  const R = MP.race, box = $('raceResults');
+  if (!R || !R.results.length) { box.hidden = true; return; }
+  box.hidden = false;
+  box.textContent = '';
+  const h = document.createElement('div'); h.className = 'eyebrow'; h.textContent = 'Race results';
+  box.append(h);
+  const ol = document.createElement('ol');
+  [...R.results].sort((a, b) => a.time - b.time).forEach((r) => {
+    const li = document.createElement('li');
+    if (r.me) li.className = 'me';
+    const dot = document.createElement('i'); dot.style.background = mpHex(r.color);
+    const nm = document.createElement('span'); nm.textContent = r.name;
+    const tm = document.createElement('strong'); tm.textContent = fmtTime(r.time);
+    li.append(dot, nm, tm);
+    ol.append(li);
+  });
+  box.append(ol);
+  const waiting = [...MP.peers.values()].filter((p) => p.rc === R.rid && !p.fin).length;
+  if (waiting) { const w = document.createElement('p'); w.className = 'mp-hint'; w.textContent = `Waiting for ${waiting} more…`; box.append(w); }
+}
+
+/* ---------- every frame ---------- */
+const _gp = new THREE.Vector3();
+function mpUpdate(dt) {
+  if (!MP.room) { $('mpHud').hidden = true; return; }
+  const now = performance.now();
+  mpRaceStep();
+  // send my state: 8/s while skiing, 1/s on menus
+  MP.sendT -= dt;
+  if (MP.connected && MP.sendT <= 0) {
+    const riding = started && P.running;
+    MP.sendT = riding || ride.active ? 0.125 : 1;
+    const rp = skier.root.position, rq = skier.root.quaternion;
+    const R = MP.race;
+    const f2 = (v) => Math.round(v * 100) / 100, f3 = (v) => Math.round(v * 1000) / 1000;
+    mpSend({
+      t: 's', tr: T.id, h: !started && !ride.active ? 1 : 0,
+      x: f2(rp.x), y: f2(rp.y), z: f2(rp.z), vx: f2(P.vel.x), vy: f2(P.vel.y), vz: f2(P.vel.z),
+      qx: f3(rq.x), qy: f3(rq.y), qz: f3(rq.z), qw: f3(rq.w),
+      d: Math.round(-P.pos.z), rc: R && R.started && !R.finished ? R.rid : '',
+    });
+  }
+  // peers: drop silent ones, move ghosts smoothly
+  let here = 0;
+  for (const p of MP.peers.values()) {
+    if (now - p.seen > 8000) { dropGhost(p); MP.peers.delete(p.id); continue; }
+    const show = p.tr === T.id && !p.home;
+    if (show) here++;
+    if (!show) { if (p.ghost) p.ghost.visible = false; continue; }
+    if (!p.ghost) { p.ghost = makeGhost(p.color, p.name || 'Friend'); p.ghost.position.copy(p.pos); p.ghost.quaternion.copy(p.q); }
+    p.ghost.visible = true;
+    const age = Math.min(0.35, (now - p.rt) / 1000);
+    _gp.copy(p.pos).addScaledVector(p.vel, age);
+    if (p.ghost.position.distanceToSquared(_gp) > 400) p.ghost.position.copy(_gp);   // teleported (gondola skip, new run)
+    else p.ghost.position.lerp(_gp, 1 - Math.exp(-14 * dt));
+    p.ghost.quaternion.slerp(p.q, 1 - Math.exp(-12 * dt));
+  }
+  // HUD: players here + live race position
+  const hud = $('mpHud');
+  hud.hidden = false;
+  let txt = `Room ${MP.room} · ${MP.connected ? MP.peers.size + 1 : '…'} riders`;
+  const R = MP.race;
+  if (R && R.started && !R.finished) {
+    const racers = [...MP.peers.values()].filter((p) => p.rc === R.rid || p.fin);
+    const ahead = racers.filter((p) => p.fin || p.d > -P.pos.z).length;
+    txt = `Race · ${ahead + 1}${['st', 'nd', 'rd'][ahead] || 'th'} of ${racers.length + 1}`;
+  }
+  hud.textContent = txt;
+  // panel refresh
+  MP.uiT -= dt;
+  if (MP.uiT <= 0) { MP.uiT = 1; if (!$('mpPanel').hidden) mpRender(); if (R && R.finished) mpRenderResults(); }
+}
+
+/* ---------- room panel ---------- */
+function mpRender() {
+  const inRoom = !!MP.room;
+  $('mpOut').hidden = inRoom;
+  $('mpIn').hidden = !inRoom;
+  $('mpStatus').textContent = MP.status;
+  if (!inRoom) return;
+  $('mpCode').textContent = MP.room;
+  $('mpTrail').textContent = T.name;
+  $('mpRace').disabled = !MP.connected;
+  const ul = $('mpList');
+  ul.textContent = '';
+  const row = (name, color, where) => {
+    const li = document.createElement('li');
+    const dot = document.createElement('i'); dot.style.background = mpHex(color);
+    const nm = document.createElement('span'); nm.textContent = name;
+    const wh = document.createElement('small'); wh.textContent = where;
+    li.append(dot, nm, wh); ul.append(li);
+  };
+  row(MP.name + ' (you)', 0xff6a3d, T.name);
+  for (const p of MP.peers.values()) {
+    const tr = TRAILS.find((t) => t.id === p.tr);
+    row(p.name || 'Friend', p.color, p.home ? 'on the menu' : (tr ? tr.name : ''));
+  }
+  if (!MP.peers.size && MP.connected) {
+    const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Nobody else yet. Send the link to your friends!';
+    ul.append(li);
+  }
+}
+function mpOpenPanel() {
+  $('intro').hidden = true;
+  $('mpName').value = MP.name;
+  $('mpPanel').hidden = false;
+  mpRender();
+}
+$('mpName').addEventListener('input', () => {
+  MP.name = $('mpName').value.replace(/[\u0000-\u001f]/g, '').slice(0, 16).trim() || MP.name;
+  try { localStorage.setItem('powderline.name', MP.name); } catch (e) { /* not stored */ }
+});
+$('mpOpen').addEventListener('click', mpOpenPanel);
+$('mpOpen2').addEventListener('click', () => { $('finish').hidden = true; mpOpenPanel(); });
+$('mpClose').addEventListener('click', () => { $('mpPanel').hidden = true; if (!started && !ride.active) $('intro').hidden = false; else if (P.finished) $('finish').hidden = false; });
+$('mpCreate').addEventListener('click', () => mpJoin(mpRand(6, MP_CODE_CHARS)));
+$('mpLeave').addEventListener('click', () => { mpLeave(false); mpRender(); });
+$('mpRace').addEventListener('click', mpRaceButton);
+$('mpCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(mpLink()); $('mpCopy').textContent = 'Copied!'; }
+  catch (e) { prompt('Copy this link:', mpLink()); }
+  setTimeout(() => { $('mpCopy').textContent = 'Copy link'; }, 1500);
+});
+$('mpShare').addEventListener('click', async () => {
+  const data = { title: 'Powder Line', text: `Ski with me in Powder Line! Room ${MP.room}`, url: mpLink() };
+  if (navigator.share) { try { await navigator.share(data); } catch (e) { /* cancelled */ } }
+  else { try { await navigator.clipboard.writeText(mpLink()); $('mpShare').textContent = 'Link copied!'; setTimeout(() => { $('mpShare').textContent = 'Share link'; }, 1500); } catch (e) { prompt('Copy this link:', mpLink()); } }
+});
+
 // Build after the loading text paints
 requestAnimationFrame(() => setTimeout(() => {
   buildWorld();
@@ -3300,4 +3670,6 @@ requestAnimationFrame(() => setTimeout(() => {
   go.disabled = false; go.textContent = 'Drop in';
   $('loadMsg').hidden = true;
   go.focus();
+  const roomFromLink = new URLSearchParams(location.search).get('room');
+  if (roomFromLink) { mpJoin(roomFromLink); mpOpenPanel(); }
 }, 30));

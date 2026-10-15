@@ -40,6 +40,7 @@
     <span><strong id="zone">Piste</strong></span>
     <span>Grade <strong id="grade">0°</strong></span>
     <span id="fps">— fps</span>
+    <span id="mpHud" class="mp-hud" hidden></span>
   </div>
   <div class="toast" id="toast" aria-live="polite"><b id="toastTitle"></b><span id="toastSub"></span></div>
   <div class="keys">
@@ -66,6 +67,7 @@
     <div class="facts" id="introFacts"></div>
     <div class="actions">
       <button class="btn" id="go" disabled>Building the mountain…</button>
+      <button class="btn ghost" id="mpOpen" type="button">Play with friends</button>
       <button class="btn ghost" id="openMap" type="button">Trail map</button>
       <button class="btn ghost" id="openStore" type="button">Gear shop</button>
       <button class="btn ghost" id="modeBtn" type="button" aria-pressed="false">Snowboard</button>
@@ -85,15 +87,40 @@
       <span><strong id="fScore">0</strong>score</span>
       <span><strong id="fCoins">0</strong>coins earned</span>
     </div>
+    <div class="race-results" id="raceResults" hidden></div>
     <p id="liftInfo">The gondola climbs back to the top station. You can skip the ride at any time.</p>
     <div class="actions">
       <button class="btn" id="again" type="button">Take the gondola</button>
       <button class="btn ghost" id="skipTop" type="button">Skip to the top</button>
+      <button class="btn ghost" id="mpOpen2" type="button">Friends</button>
       <button class="btn ghost" id="finishMap" type="button">Trail map</button>
       <button class="btn ghost" id="finishStore" type="button">Gear shop</button>
     </div>
   </div>
 </div>
+
+<div class="overlay" id="mpPanel" hidden>
+  <div class="card" role="dialog" aria-modal="true" aria-labelledby="mpTitle">
+    <div class="eyebrow">Play with friends</div>
+    <h1 id="mpTitle">Private room</h1>
+    <label class="mp-label">Your name<input id="mpName" maxlength="16" autocomplete="off" spellcheck="false"></label>
+    <div id="mpOut">
+      <p>Create a private room and send the link to your friends. Everyone who opens it skis on the same mountain with you, and you can start a race.</p>
+      <button class="btn" id="mpCreate" type="button">Create private room</button>
+    </div>
+    <div id="mpIn" hidden>
+      <div class="mp-code">Room <strong id="mpCode"></strong></div>
+      <div class="actions"><button class="btn" id="mpShare" type="button">Share link</button><button class="btn ghost" id="mpCopy" type="button">Copy link</button></div>
+      <ul class="mp-list" id="mpList"></ul>
+      <button class="btn" id="mpRace" type="button">Start a race</button>
+      <p class="mp-hint">Everyone in the room drops in together on <b id="mpTrail"></b> after a 5-second countdown. Fastest time wins.</p>
+      <button class="btn ghost" id="mpLeave" type="button">Leave room</button>
+    </div>
+    <p class="mp-status" id="mpStatus" aria-live="polite"></p>
+    <button class="btn ghost" id="mpClose" type="button">Back</button>
+  </div>
+</div>
+<div class="countdown" id="countdown" hidden></div>
 
 <div class="overlay mapview" id="mapView" hidden>
   <div class="map-card" role="dialog" aria-modal="true" aria-labelledby="mapTitle">

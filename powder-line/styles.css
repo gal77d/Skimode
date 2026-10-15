@@ -160,3 +160,25 @@ html,body,#stage,#stage canvas,.hud,.touch{touch-action:none;-webkit-touch-callo
 button,a,input,select{touch-action:manipulation}
 .touch button{touch-action:none}
 .overlay,.card,.map-card,.store-panel,.items,.ride{touch-action:pan-y}
+
+/* Multiplayer: room panel, player list, race countdown and results */
+.mp-label{display:grid;gap:6px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim)}
+.mp-label input{font:600 16px var(--body);color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--panel-edge);border-radius:6px;padding:10px 12px;text-transform:none;letter-spacing:0;-webkit-user-select:text;user-select:text}
+.mp-code{font-family:var(--display);font-size:20px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-dim)}
+.mp-code strong{color:var(--ink);font-size:30px;letter-spacing:.18em;margin-left:6px}
+.mp-list{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.mp-list li,.race-results li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:rgba(255,255,255,.06)}
+.mp-list li i,.race-results li i{width:12px;height:12px;border-radius:50%;flex:none}
+.mp-list li span,.race-results li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mp-list li small{color:var(--ink-dim)}
+.mp-list li.empty{color:var(--ink-dim);font-size:14px}
+.mp-hint{margin:0;font-size:13px;color:var(--ink-dim)}
+.mp-status{margin:0;font-size:13px;color:var(--ink-dim);min-height:1em}
+.mp-hud{color:var(--ink)}
+.race-results ol{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px;counter-reset:r}
+.race-results li{counter-increment:r}
+.race-results li::before{content:counter(r);font-family:var(--display);font-weight:700;font-size:18px;min-width:1.2em}
+.race-results li.me{outline:1px solid var(--accent)}
+.race-results li strong{font-family:var(--display);font-size:18px}
+.countdown{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:6;font-family:var(--display);font-weight:700;font-size:min(34vw,220px);color:#fff;text-shadow:0 6px 30px rgba(0,0,0,.45)}
+.btn:disabled{opacity:.5}
