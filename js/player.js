@@ -1,6 +1,7 @@
 // player.js — הגולש: הדמות שלו והתנועה שלו על המדרון
 import * as THREE from 'three';
 import { getHeight, getSlope, SLOPE_LENGTH, PLAY_HALF } from './terrain.js';
+import { createSkier, poseSkier } from './skier.js';
 
 const G = 9.81; // כוח המשיכה (מ'/שנייה²)
 const START_Z = 15;
@@ -21,74 +22,6 @@ const _slope = new THREE.Vector2();
 const _up = new THREE.Vector3(0, 1, 0);
 const _normal = new THREE.Vector3();
 
-function buildModel() {
-  const root = new THREE.Group();
-  root.rotation.order = 'YXZ';
-
-  const matSuit = new THREE.MeshLambertMaterial({ color: 0xd62828 });
-  const matPants = new THREE.MeshLambertMaterial({ color: 0x1d3557 });
-  const matHelmet = new THREE.MeshLambertMaterial({ color: 0x222831 });
-  const matGoggles = new THREE.MeshLambertMaterial({ color: 0x00b4d8 });
-  const matSki = new THREE.MeshLambertMaterial({ color: 0xffb703 });
-  const matPole = new THREE.MeshLambertMaterial({ color: 0x9aa5b1 });
-
-  // מגלשיים
-  const skiGeo = new THREE.BoxGeometry(0.11, 0.03, 1.7);
-  const skis = [];
-  for (let side = -1; side <= 1; side += 2) {
-    const ski = new THREE.Mesh(skiGeo, matSki);
-    ski.position.set(side * 0.14, 0.015, 0.1);
-    ski.userData.side = side;
-    root.add(ski);
-    skis.push(ski);
-  }
-
-  // רגליים (נקודת הציר למטה כדי שיתכווצו לכיוון הקרקע)
-  const legGeo = new THREE.BoxGeometry(0.13, 0.8, 0.15);
-  legGeo.translate(0, 0.4, 0);
-  const legs = [];
-  for (let side = -1; side <= 1; side += 2) {
-    const leg = new THREE.Mesh(legGeo, matPants);
-    leg.position.set(side * 0.14, 0.03, 0);
-    root.add(leg);
-    legs.push(leg);
-  }
-
-  // פלג גוף עליון (נוטה קדימה ויורד בכפיפה)
-  const torso = new THREE.Group();
-  torso.position.y = 0.83;
-  root.add(torso);
-
-  const chest = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.35, 4, 8), matSuit);
-  chest.position.y = 0.32;
-  torso.add(chest);
-
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), matHelmet);
-  head.position.y = 0.8;
-  torso.add(head);
-
-  const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.07, 0.06), matGoggles);
-  goggles.position.set(0, 0.8, 0.13);
-  torso.add(goggles);
-
-  const armGeo = new THREE.BoxGeometry(0.08, 0.45, 0.08);
-  armGeo.translate(0, -0.22, 0);
-  const poleGeo = new THREE.CylinderGeometry(0.012, 0.012, 1.15, 5);
-  poleGeo.translate(0, -0.55, 0);
-  for (let side = -1; side <= 1; side += 2) {
-    const arm = new THREE.Mesh(armGeo, matSuit);
-    arm.position.set(side * 0.27, 0.55, 0);
-    arm.rotation.x = -0.6;
-    torso.add(arm);
-    const pole = new THREE.Mesh(poleGeo, matPole);
-    pole.position.set(0, -0.42, 0);
-    pole.rotation.x = 1.0;
-    arm.add(pole);
-  }
-
-  return { root, torso, legs, skis };
-}
-
 export class Player {
   constructor(scene) {
     this.pos = new THREE.Vector3();
@@ -100,12 +33,15 @@ export class Player {
     this.lean = 0;
     this.tuck = 0;
     this.brake = 0;
+    this.air = 0;
+    this.push = 0;
+    this.pushing = false;
+    this.time = 0;
+    // אובייקט תנוחה אחד שמשתמשים בו שוב ושוב (בלי ליצור חדש בכל פריים)
+    this.pose = { tuck: 0, brake: 0, air: 0, turn: 0, push: 0, time: 0 };
 
-    const model = buildModel();
-    this.mesh = model.root;
-    this.torso = model.torso;
-    this.legs = model.legs;
-    this.skis = model.skis;
+    this.rig = createSkier();
+    this.mesh = this.rig.root;
     scene.add(this.mesh);
 
     // צל עגול פשוט מתחת לגולש (זול מאוד לעומת צל אמיתי)
@@ -133,6 +69,8 @@ export class Player {
     this.lean = 0;
     this.tuck = 0;
     this.brake = 0;
+    this.air = 0;
+    this.push = 0;
     this._updateVisual(1, 0);
   }
 
@@ -210,7 +148,8 @@ export class Player {
 
     // 5) דחיפה עם המקלות כשכמעט עומדים ולוחצים קדימה
     let s = Math.hypot(vx, vz);
-    if (this.tuck > 0.3 && s < 6) {
+    this.pushing = this.tuck > 0.3 && s < 6;
+    if (this.pushing) {
       vx += fx * PUSH_ACCEL * this.tuck * dt;
       vz += fz * PUSH_ACCEL * this.tuck * dt;
       s = Math.hypot(vx, vz);
@@ -275,18 +214,18 @@ export class Player {
     this.mesh.position.copy(this.pos);
     this.mesh.rotation.set(this.pitch, this.heading, this.lean);
 
-    // כפיפה: הרגליים מתקצרות והגוף נוטה קדימה
-    const legScale = 1 - 0.3 * this.tuck;
-    this.legs[0].scale.y = legScale;
-    this.legs[1].scale.y = legScale;
-    this.torso.position.y = 0.03 + 0.8 * legScale;
-    this.torso.rotation.x = 0.15 + this.tuck * 0.7;
-
-    // בלימה: קצות המגלשיים מתקרבים ("פיצה")
-    for (let i = 0; i < 2; i++) {
-      const ski = this.skis[i];
-      ski.rotation.y = -ski.userData.side * 0.3 * this.brake;
-    }
+    // תנוחת הגוף: כפיפה, בלימה ("פיצה"), ברכיים מקופלות באוויר, דחיפה במקלות
+    this.time += dt;
+    this.air += ((this.grounded ? 0 : 1) - this.air) * blend;
+    this.push += ((this.grounded && this.pushing ? 1 : 0) - this.push) * Math.min(1, dt * 4);
+    const pose = this.pose;
+    pose.tuck = this.pushing ? 0.15 : this.tuck;
+    pose.brake = this.brake;
+    pose.air = this.air;
+    pose.turn = turnLean / 0.45;
+    pose.push = this.push;
+    pose.time = this.time;
+    poseSkier(this.rig, pose);
 
     // הצל על השלג
     const groundY = getHeight(this.pos.x, this.pos.z);

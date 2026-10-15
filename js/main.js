@@ -66,16 +66,16 @@ function updateCamera(dt) {
 
   const fx = Math.sin(camHeading);
   const fz = Math.cos(camHeading);
-  const dist = 6 + player.speed * 0.05;
+  const dist = 4.5 + player.speed * 0.03;
   const p = player.pos;
 
   const cx = p.x - fx * dist;
   const cz = p.z - fz * dist;
-  const targetY = Math.max(p.y + 2.8, getHeight(cx, cz) + 1.5);
+  const targetY = Math.max(p.y + 2.1, getHeight(cx, cz) + 1.3);
   camY += (targetY - camY) * Math.min(1, dt * 6);
 
   camera.position.set(cx, camY, cz);
-  camLook.set(p.x + fx * 12, p.y - 1.5, p.z + fz * 12);
+  camLook.set(p.x + fx * 10, p.y - 0.9, p.z + fz * 10);
   camera.lookAt(camLook);
 
   // זווית ראייה רחבה יותר במהירות = תחושת מהירות
