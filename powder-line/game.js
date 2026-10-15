@@ -3323,8 +3323,11 @@ $('skipRide').addEventListener('click', skipRide);
    ========================================================= */
 const MP_LIB = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.esm.js';
 const MP_BROKERS = (() => {
-  const b = new URLSearchParams(location.search).get('broker');   // local testing only
-  if (b) { try { const u = new URL(b); if (['localhost', '127.0.0.1'].includes(u.hostname)) return [b]; } catch (e) { /* ignore */ } }
+  const b = new URLSearchParams(location.search).get('broker');   // local testing only (comma-separated)
+  if (b) {
+    const list = b.split(',').filter((x) => { try { return ['localhost', '127.0.0.1'].includes(new URL(x).hostname); } catch (e) { return false; } });
+    if (list.length) return list;
+  }
   return ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt'];
 })();
 const MP_COLORS = [0x3f7cff, 0x2ecc71, 0xf4c542, 0xb55cff, 0x00c2d1, 0xff4d8d, 0xff8c1a, 0xe8eef6];
@@ -3334,7 +3337,7 @@ const mpRand = (n, chars = 'abcdefghijklmnopqrstuvwxyz0123456789') => {
   return Array.from(a, (v) => chars[v % chars.length]).join('');
 };
 const MP = {
-  lib: null, client: null, room: '', id: mpRand(10), name: '', connected: false, status: '',
+  lib: null, clients: [], seq: 0, room: '', id: mpRand(10), name: '', connected: false, status: '',
   peers: new Map(), sendT: 0, uiT: 0, race: null,
 };
 try { MP.name = (localStorage.getItem('powderline.name') || '').slice(0, 16); } catch (e) { /* not stored */ }
@@ -3400,14 +3403,16 @@ function dropGhost(p) {
 /* ---------- connection ---------- */
 function mpSetStatus(s) { MP.status = s; mpRender(); }
 function mpSend(msg) {
-  if (!MP.client || !MP.connected) return;
-  msg.id = MP.id; msg.n = MP.name;
-  try { MP.client.publish(mpTopic(), JSON.stringify(msg), { qos: 0 }); } catch (e) { /* dropped */ }
+  if (!MP.connected) return;
+  msg.id = MP.id; msg.n = MP.name; msg.q = ++MP.seq;
+  const data = JSON.stringify(msg);
+  // sent through every relay we are connected to, so friends on either relay get it
+  for (const c of MP.clients) if (c.connected) { try { c.publish(mpTopic(), data, { qos: 0 }); } catch (e) { /* dropped */ } }
 }
 async function mpJoin(code) {
   code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
   if (code.length < 4) return;
-  if (MP.room === code && MP.client) return;
+  if (MP.room === code && MP.clients.length) return;
   mpLeave(true);
   MP.room = code;
   const url = new URL(location.href); url.searchParams.set('room', code);
@@ -3416,36 +3421,35 @@ async function mpJoin(code) {
   if (!MP.lib) {
     try { const mod = await import(MP_LIB); MP.lib = mod.default || mod; } catch (e) { mpSetStatus('Could not load multiplayer (no internet?)'); return; }
   }
-  mpConnect(0, code);
-}
-function mpConnect(i, code) {
   if (MP.room !== code) return;
-  if (i >= MP_BROKERS.length) { mpSetStatus('Could not reach the room server. Try again later.'); return; }
-  const c = MP.lib.connect(MP_BROKERS[i], {
-    clientId: 'pl_' + MP.id + '_' + mpRand(4), clean: true, keepalive: 15, connectTimeout: 7000, reconnectPeriod: 2000,
+  // Connect to ALL relays at once. Using only a fallback could put two friends on different
+  // relays where they never meet; on all of them, everyone always shares at least one.
+  for (const url of MP_BROKERS) mpConnect(url, code);
+  setTimeout(() => { if (MP.room === code && !MP.connected) mpSetStatus('Still connecting… check your internet.'); }, 9000);
+}
+function mpRefreshConnected() {
+  const was = MP.connected;
+  MP.connected = MP.clients.some((c) => c.connected);
+  if (MP.connected && !was) { MP.sendT = 0; mpSetStatus('Connected'); }
+  else if (!MP.connected && was) mpSetStatus('Reconnecting…');
+}
+function mpConnect(url, code) {
+  const c = MP.lib.connect(url, {
+    clientId: 'pl_' + MP.id + '_' + mpRand(4), clean: true, keepalive: 15, connectTimeout: 9000, reconnectPeriod: 2000,
     will: { topic: mpTopic(), payload: JSON.stringify({ t: 'leave', id: MP.id }), qos: 0, retain: false },
   });
-  MP.client = c;
-  let ok = false;
-  c.on('connect', () => {
-    ok = true; MP.connected = true;
-    c.subscribe(mpTopic(), { qos: 0 });
-    MP.sendT = 0;
-    mpSetStatus('Connected');
-  });
-  c.on('reconnect', () => { if (MP.client === c) mpSetStatus('Reconnecting…'); });
-  c.on('close', () => { if (MP.client === c) MP.connected = false; });
-  c.on('message', (topic, payload) => { if (MP.client === c) mpOnMessage(payload); });
-  setTimeout(() => {
-    if (!ok && MP.client === c) { c.end(true); MP.client = null; mpConnect(i + 1, code); }
-  }, 8000);
+  MP.clients.push(c);
+  const mine = () => MP.room === code && MP.clients.includes(c);
+  c.on('connect', () => { if (!mine()) return; c.subscribe(mpTopic(), { qos: 0 }); mpRefreshConnected(); });
+  c.on('close', () => { if (mine()) mpRefreshConnected(); });
+  c.on('offline', () => { if (mine()) mpRefreshConnected(); });
+  c.on('error', () => { /* the client retries by itself */ });
+  c.on('message', (topic, payload) => { if (mine()) mpOnMessage(payload); });
 }
 function mpLeave(silent) {
-  if (MP.client) {
-    if (MP.connected) mpSend({ t: 'leave' });
-    const c = MP.client; MP.client = null;
-    setTimeout(() => c.end(true), 150);
-  }
+  if (MP.connected) mpSend({ t: 'leave' });
+  const old = MP.clients; MP.clients = [];
+  setTimeout(() => { for (const c of old) { try { c.end(true); } catch (e) { /* closed */ } } }, 150);
   MP.connected = false;
   for (const p of MP.peers.values()) dropGhost(p);
   MP.peers.clear();
@@ -3463,8 +3467,8 @@ addEventListener('pagehide', () => { if (MP.connected) mpSend({ t: 'leave' }); }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || !MP.room) return;
   MP.sendT = 0;
-  if (MP.client && !MP.client.connected) { mpSetStatus('Reconnecting…'); try { MP.client.reconnect(); } catch (e) { /* retry timer */ } }
-  else if (!MP.client && MP.lib) mpConnect(0, MP.room);
+  for (const c of MP.clients) if (!c.connected) { try { c.reconnect(); } catch (e) { /* retry timer */ } }
+  if (!MP.clients.length && MP.lib) for (const url of MP_BROKERS) mpConnect(url, MP.room);
 });
 
 function mpOnMessage(payload) {
@@ -3484,6 +3488,8 @@ function mpOnMessage(payload) {
   p.seen = now;
   const nm = mpStr(m.n, 16).trim();
   if (nm && nm !== p.name) { p.name = nm; dropGhost(p); }
+  const q = mpNum(m.q, 1e12);
+  if (q !== null) { if (p.lastSeq !== undefined && q <= p.lastSeq && q > p.lastSeq - 1000) return; p.lastSeq = q; }   // same message from the other relay
   if (m.t === 's') {
     const x = mpNum(m.x), y = mpNum(m.y), z = mpNum(m.z);
     if (x === null || y === null || z === null) return;
