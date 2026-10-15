@@ -275,3 +275,30 @@ body.playing #controls {
   font-weight: 700;
   text-decoration: none;
 }
+
+#installBtn {
+  width: 100%;
+  height: 50px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 14px;
+  background: #16a34a;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  font-family: inherit;
+}
+
+#installBtn[hidden],
+#iosHelp[hidden] {
+  display: none;
+}
+
+#iosHelp {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #eef6ff;
+  font-size: 14px;
+  line-height: 1.5;
+}
