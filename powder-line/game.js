@@ -96,6 +96,10 @@ function ridged(x, y, oct) {
    ========================================================= */
 // Every spot on the trail map is one of these. The world is rebuilt from the chosen one.
 const TRAILS = [
+  { id: 'village', name: 'Mountain Village', diff: 'blue', tag: 'Open map · all gondolas', hub: true, run: 1500, startAlt: 2350, slope: 0.075,
+    wind: [26, 0.0019, 10, 0.0055], roll: [9, 3], half: 165, park: null, trees: 320, spread: 55,
+    kickers: [], rails: [], pipe: null, banner: '',
+    blurb: 'A huge open snowfield at the heart of the resort. Ski wherever you like — even push yourself uphill — and find the gondola stations spread around the bowl. Each one lifts you to a different trail.' },
   { id: 'valley', name: 'Valley Park', diff: 'blue', tag: 'Park run', run: 2500, startAlt: 2840, slope: 0.31,
     wind: [44, 0.0021, 16, 0.0063], roll: [18, 5], half: 30, park: [600, 2000], trees: 700, spread: 40,
     kickers: [[700, -7, 'S'], [880, 3, 'M'], [1040, 0, 'L'], [1150, -8, 'S'], [1165, 9, 'M'], [1265, 0, 'L']],
@@ -143,7 +147,7 @@ const inrunDist = (s, a, w) => (s < a - w ? s : s > a + w ? a : s - (s - (a - w)
 const baseY = (s) => -T.slope * s - T.roll[0] * Math.sin(s * 0.0045) - T.roll[1] * Math.sin(s * 0.017 + 0.5)
   - (T.inrun ? T.inrun[1] * inrunDist(s, T.inrun[0], T.inrun[2]) : 0);
 const pisteHalf = (s) => T.half * (1 + 0.233 * Math.sin(s * 0.011 + 0.7));
-function wallH(ad) { const d = Math.max(0, ad - 16) / 430; return 460 * (1 - Math.exp(-d * d)); }
+function wallH(ad) { const d = Math.max(0, ad - (T.hub ? 200 : 16)) / 430; return 460 * (1 - Math.exp(-d * d)); }
 
 // Terrain park zone: groomed smooth so features sit on clean snow
 let PARK_START = 1e9, PARK_END = -1e9;
@@ -256,12 +260,12 @@ function setTrail(id) {
     LAKE = keep;
   }
 }
-let savedTrail = 'valley';
+let savedTrail = 'village';   // new players start in the Mountain Village
 try {
   const raw = JSON.parse(localStorage.getItem('powderline.gear.v1') || '{}') || {};
-  savedTrail = raw.trail || 'valley';
+  savedTrail = raw.trail || 'village';
   const st = TRAILS.find((t) => t.id === savedTrail);
-  if (!st || (st.price && !(Array.isArray(raw.owned) && raw.owned.includes('map-' + st.id)))) savedTrail = 'valley';
+  if (!st || (st.price && !(Array.isArray(raw.owned) && raw.owned.includes('map-' + st.id)))) savedTrail = 'village';
 } catch (e) { /* default trail */ }
 setTrail(savedTrail);
 
@@ -1332,7 +1336,7 @@ function groundStep(dt, inp, released) {
   P.vel.copy(f).multiplyScalar(vf).addScaledVector(r, newVl);
   speed = P.vel.length();
 
-  if (inp.tuck && speed < 5) P.vel.addScaledVector(f, 1.6 * dt);
+  if (inp.tuck && speed < (T.hub ? 7 : 5)) P.vel.addScaledVector(f, (T.hub ? 3.4 : 1.6) * dt);   // poling / skating
 
   // snow friction + skid + drag
   const mu = 0.045 + P.brake * 0.42 + 0.22 * Math.min(1, Math.abs(newVl) / (speed + 1));
@@ -2509,6 +2513,7 @@ function buildWorld() {
   buildPark();
   buildLift();
   buildBackdrop();
+  buildStations();
   chunks.length = NCH;
   chunks.fill(null);
   streamChunks(Z_START - 12, true);   // the start area is ready before the first frame
@@ -2827,6 +2832,7 @@ addEventListener('resize', setShopView);
    Trail map: pick a spot, the world rebuilds for that trail
    ========================================================= */
 const MAP_ART = {
+  village: { d: 'M150 404 C 200 392, 250 414, 310 400', label: [168, 412], lift: [[322, 408], [318, 388]], w: 26 },
   valley: { d: 'M318 98 C 284 150, 372 190, 320 240 S 362 320, 336 384', label: [348, 150], lift: [[370, 390], [362, 96]], w: 15 },
   bigair: { d: 'M486 212 C 492 238, 482 266, 490 304', label: [500, 226], lift: [[518, 308], [514, 206]], jump: [487, 256], w: 17 },
   pipe: { d: 'M212 150 C 206 210, 218 272, 204 340', label: [96, 188], lift: [[238, 344], [240, 146]], pipe: true, w: 15 },
@@ -3052,6 +3058,7 @@ function trailStats(t) {
   if (nb) parts.push(`${nb} box${nb > 1 ? 'es' : ''}`);
   if (t.pipe) parts.push(`${t.pipe[1]} m half-pipe`);
   if (t.lake) { const g = t.kickers.find((k) => KICK[k[2]].gap); if (g) parts.push(`${KICK[g[2]].Lt} m gap over a lake`); }
+  if (t.hub) parts.push(`${TRAILS.length - 1} gondola stations, one to every trail`, 'Ski anywhere: no fixed line');
   if (!parts.length) parts.push('Rollers and tight trees, no park');
   return { drop, lift, features: parts };
 }
@@ -3226,6 +3233,7 @@ function frame() {
   updateShadow();
   updateLOD();
   spray.update(dt);
+  updateStations(dt);
   mpUpdate(dt);
   if (LAKE && LAKE.mat) { LAKE.mat.normalMap.offset.x += dt * 0.012; LAKE.mat.normalMap.offset.y += dt * 0.007; }
   spray.mat.uniforms.uScale.value = (renderer.domElement.height * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
@@ -3311,6 +3319,106 @@ function goHome() {
 $('again').addEventListener('click', startGondola);
 $('skipTop').addEventListener('click', () => { $('finish').hidden = true; arriveTop(); });
 $('skipRide').addEventListener('click', skipRide);
+
+/* =========================================================
+   Mountain Village: gondola stations to every trail
+   ---------------------------------------------------------
+   On the open village map each other trail has a station: a hut, a tall sign with
+   the trail's name, a cabin and a coloured ring on the snow. Ski into the ring and a
+   button offers the gondola ride up to that trail.
+   ========================================================= */
+const STATIONS = [];
+const ST = {
+  hut: new THREE.BoxGeometry(10, 4.2, 7),
+  roof: new THREE.ConeGeometry(7.6, 3.2, 4),
+  post: new THREE.CylinderGeometry(0.18, 0.22, 11, 8),
+  tower: new THREE.CylinderGeometry(0.35, 0.6, 22, 8),
+  cabin: new THREE.BoxGeometry(2.4, 2.2, 2.4),
+  ring: new THREE.RingGeometry(9, 10.6, 48),
+  wood: new THREE.MeshStandardMaterial({ color: 0x6b4425, roughness: 0.85 }),
+  roofMat: new THREE.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.7 }),
+  steel: new THREE.MeshStandardMaterial({ color: 0x8b939d, roughness: 0.4, metalness: 0.7 }),
+  red: new THREE.MeshStandardMaterial({ color: 0xa5161f, roughness: 0.5 }),
+};
+function stationSignTexture(t) {
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 176;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#6b4425'; c.fillRect(0, 0, 512, 176);
+  c.fillStyle = '#f4f8fc'; c.fillRect(10, 10, 492, 156);
+  c.fillStyle = DIFF[t.diff].color; c.fillRect(10, 10, 26, 156);
+  c.fillStyle = '#1b2633'; c.textBaseline = 'middle';
+  c.font = '700 54px "Barlow Condensed", "Arial Narrow", sans-serif';
+  c.fillText(t.name.toUpperCase(), 56, 66, 430);
+  c.font = '600 34px Barlow, system-ui, sans-serif'; c.fillStyle = '#4a5d78';
+  c.fillText(`Gondola ↑  ·  ${DIFF[t.diff].label}`, 56, 128, 430);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  return tex;
+}
+function buildStations() {
+  STATIONS.length = 0;
+  if (!T.hub) return;
+  const dests = TRAILS.filter((t) => t.id !== T.id);
+  dests.forEach((t, i) => {
+    const s = 150 + i * ((RUN - 330) / Math.max(1, dests.length - 1));
+    const side = i % 2 ? 1 : -1;
+    const u = side * (50 + (i % 3) * 32);
+    const x = centerX(s) + u, z = -s, y = surfH(x, z);
+    const g = new THREE.Group();
+    g.position.set(x, y, z);
+    g.rotation.y = -side * 0.35;   // sign faces uphill (towards skiers coming down), turned a little to the middle
+    const add = (geo, mat, px, py, pz, ry = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.rotation.y = ry; m.castShadow = true; m.receiveShadow = true; g.add(m); return m; };
+    add(ST.hut, ST.wood, 0, 1.6, -6);
+    const roof = add(ST.roof, ST.roofMat, 0, 5.3, -6, Math.PI / 4); roof.scale.set(1, 1, 0.72);
+    add(ST.post, ST.steel, -4.2, 5.5, 2); add(ST.post, ST.steel, 4.2, 5.5, 2);
+    const signMat = new THREE.MeshStandardMaterial({ map: stationSignTexture(t), roughness: 0.6, side: THREE.DoubleSide });
+    signMat.userData.perWorld = true;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 3.3), signMat); sign.position.set(0, 9.4, 2.05); g.add(sign);
+    add(ST.tower, ST.steel, 6.5, 11, -10);
+    add(ST.cabin, ST.red, 6.5, 18.6, -10);
+    const ringMat = new THREE.MeshBasicMaterial({ color: DIFF[t.diff].color, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
+    ringMat.userData.perWorld = true;
+    const ring = new THREE.Mesh(ST.ring, ringMat); ring.rotation.x = -Math.PI / 2; ring.position.set(0, 0.25, 6); g.add(ring);
+    world.add(g);
+    // the boarding spot is the centre of the ring
+    const spot = new THREE.Vector3(0, 0, 6).applyEuler(g.rotation).add(g.position);
+    STATIONS.push({ t, x: spot.x, z: spot.z, ring });
+  });
+}
+
+let nearStation = null;
+function boardStation(st) {
+  if (!st) return;
+  if (!mapOwned(st.t)) { toast(`${st.t.name} is locked`, 'bad', `Unlock it on the trail map for ${nf.format(st.t.price)} coins`); return; }
+  $('gondolaBtn').hidden = true;
+  nearStation = null;
+  P.vel.set(0, 0, 0);
+  chooseTrail(st.t.id, false);
+  // once the new trail is built, ride its gondola to the top
+  const wait = () => {
+    if ($('go').disabled) { setTimeout(wait, 60); return; }
+    $('intro').hidden = true;
+    started = true;
+    startGondola();
+  };
+  setTimeout(wait, 80);
+}
+function updateStations(dt) {
+  const btn = $('gondolaBtn');
+  if (!T.hub || !started || !P.running || P.mode !== 'ground') { if (!btn.hidden) btn.hidden = true; nearStation = null; return; }
+  let best = null, bd = 12 * 12;
+  for (const st of STATIONS) {
+    const d = (st.x - P.pos.x) ** 2 + (st.z - P.pos.z) ** 2;
+    if (d < bd) { bd = d; best = st; }
+    st.ring.material.opacity = 0.55 + 0.25 * Math.sin(animT * 3);
+  }
+  if (best !== nearStation) {
+    nearStation = best;
+    btn.hidden = !best;
+    if (best) btn.textContent = mapOwned(best.t) ? `🚡 Gondola to ${best.t.name}` : `🔒 ${best.t.name} · ${nf.format(best.t.price)} coins`;
+  }
+}
+$('gondolaBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); boardStation(nearStation); });
+addEventListener('keydown', (e) => { if ((e.key === 'e' || e.key === 'E' || e.key === 'Enter') && nearStation && !e.repeat) { e.preventDefault(); boardStation(nearStation); } });
 
 /* =========================================================
    Multiplayer: private rooms over a public MQTT relay

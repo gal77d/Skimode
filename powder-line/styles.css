@@ -190,3 +190,14 @@ button,a,input,select{touch-action:manipulation}
 #mpPanel .card,#mpOut,#mpIn{grid-template-columns:minmax(0,1fr)}
 .mp-join input{width:0}
 .mp-join .btn{flex:none}
+
+/* Mountain Village: boarding button near a gondola station */
+.gondola-btn{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:4;padding:14px 22px;border-radius:999px;border:1px solid rgba(255,255,255,.5);background:var(--accent);color:#fff;font:700 18px var(--display);letter-spacing:.08em;text-transform:uppercase;box-shadow:0 6px 24px rgba(0,0,0,.35);touch-action:none;max-width:calc(100vw - 32px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:760px){.gondola-btn{top:auto;bottom:calc(132px + env(safe-area-inset-bottom,0px))}}
+
+/* Bigger trail map: the map fills the screen */
+.mapview{padding:8px}
+.map-card{width:100%;max-width:1700px;padding:14px}
+.map-body{grid-template-columns:minmax(0,1fr) 290px}
+.map-art{width:min(100%, calc((100dvh - 120px) * 640 / 440));justify-self:center}
+@media (max-width:760px){.map-body{grid-template-columns:1fr}.map-art{width:100%}}
