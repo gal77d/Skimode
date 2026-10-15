@@ -2,7 +2,7 @@
 // נפתחת מהר ועובדת גם בלי אינטרנט (אחרי הפעם הראשונה).
 // קבצים שלנו: קודם מנסים מהאינטרנט (כדי לקבל עדכונים), ואם אין — מהזיכרון.
 // ספריות מה-CDN (גרסה קבועה): קודם מהזיכרון, כי הן לא משתנות.
-const CACHE = 'skimode-v1';
+const CACHE = 'skimode-v2';
 const CORE = [
   './',
   './index.html',
@@ -33,7 +33,7 @@ const CORE = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => Promise.allSettled(CORE.map((url) => cache.add(url)))),
+    caches.open(CACHE).then((cache) => Promise.allSettled(CORE.map((url) => cache.add(new Request(url, { cache: 'reload' }))))),
   );
   self.skipWaiting();
 });
@@ -67,7 +67,7 @@ self.addEventListener('fetch', (event) => {
 
   // הקבצים שלנו: מהרשת קודם, ואם אין אינטרנט — מהזיכרון
   event.respondWith(
-    fetch(req)
+    fetch(req, { cache: 'no-cache' })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

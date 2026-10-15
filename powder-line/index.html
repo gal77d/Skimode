@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<script>if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('../sw.js', { scope: '../' }).catch(function () {}); });</script>
+<script>if ('serviceWorker' in navigator) window.addEventListener('load', function () { navigator.serviceWorker.register('../sw.js', { scope: '../', updateViaCache: 'none' }).catch(function () {}); });</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
@@ -146,22 +146,41 @@
 } }
 </script>
 <script>
-/* Block zoom: iPhone ignores user-scalable=no, so stop pinch and double-tap here */
+/* Block zoom everywhere except scrolling inside panels.
+   iPhone ignores user-scalable=no, so every touch gesture on the game is stopped here.
+   The game itself listens to pointer events, which still fire. */
 (function () {
-  var stop = function (e) { e.preventDefault(); };
-  document.addEventListener('gesturestart', stop, { passive: false });
-  document.addEventListener('gesturechange', stop, { passive: false });
-  document.addEventListener('gestureend', stop, { passive: false });
+  var SCROLLABLE = '.card, .map-card, .store-panel, .items, .ride-card';
+  var stop = function (e) { if (e.cancelable) e.preventDefault(); };
+  ['gesturestart', 'gesturechange', 'gestureend', 'dblclick'].forEach(function (t) {
+    document.addEventListener(t, stop, { passive: false, capture: true });
+  });
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length > 1) return stop(e);
+    // on the game area and the touch buttons: no zoom, no double-tap, no long-press magnifier
+    if (!e.target.closest('.overlay, .store, .mapview, .ride')) stop(e);
+  }, { passive: false, capture: true });
   document.addEventListener('touchmove', function (e) {
-    if (e.touches.length > 1 || (e.scale !== undefined && e.scale !== 1)) e.preventDefault();
-  }, { passive: false });
-  var lastTouch = 0;
+    if (e.touches.length > 1 || (e.scale !== undefined && e.scale !== 1)) return stop(e);
+    if (!e.target.closest(SCROLLABLE)) stop(e);
+  }, { passive: false, capture: true });
+  var lastEnd = 0;
   document.addEventListener('touchend', function (e) {
     var now = Date.now();
-    if (now - lastTouch < 350 && !e.target.closest('button, a, input, select, textarea')) e.preventDefault();
-    lastTouch = now;
-  }, { passive: false });
-  document.addEventListener('dblclick', stop, { passive: false });
+    if (now - lastEnd < 400 && !e.target.closest('.overlay, .store, .mapview, .ride')) stop(e);
+    lastEnd = now;
+  }, { passive: false, capture: true });
+  // if the page somehow got zoomed, snap back
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      if (window.visualViewport.scale > 1.01) {
+        var m = document.querySelector('meta[name=viewport]');
+        var c = m.content;
+        m.content = c + ',maximum-scale=1.0001';
+        setTimeout(function () { m.content = c; }, 60);
+      }
+    });
+  }
 })();
 </script>
 <script type="module" src="game.js"></script>
