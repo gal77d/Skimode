@@ -264,3 +264,14 @@ body.playing #controls {
   direction: rtl;
   z-index: 10;
 }
+
+#altGame {
+  display: block;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 2px solid #1e6ee6;
+  color: #1e6ee6;
+  font-weight: 700;
+  text-decoration: none;
+}
