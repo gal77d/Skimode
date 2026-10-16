@@ -96,10 +96,10 @@ function ridged(x, y, oct) {
    ========================================================= */
 // Every spot on the trail map is one of these. The world is rebuilt from the chosen one.
 const TRAILS = [
-  { id: 'village', name: 'Mountain Village', diff: 'blue', tag: 'Open map · all gondolas', hub: true, run: 1500, startAlt: 2350, slope: 0.075,
-    wind: [26, 0.0019, 10, 0.0055], roll: [9, 3], half: 165, park: null, trees: 320, spread: 55,
+  { id: 'village', name: 'Mountain Village', diff: 'blue', tag: 'Village · forest · all gondolas', hub: true, run: 3200, startAlt: 2350, slope: 0.075,
+    wind: [26, 0.0019, 10, 0.0055], roll: [9, 3], half: 42, park: null, trees: 1100, spread: 40,
     kickers: [], rails: [], pipe: null, banner: '',
-    blurb: 'A huge open snowfield at the heart of the resort. Ski wherever you like — even push yourself uphill — and find the gondola stations spread around the bowl. Each one lifts you to a different trail.' },
+    blurb: 'The heart of the resort: a village square ringed by gondolas to every trail. Below it a wide main run drops 3 km through a thick pine forest. Leave the main run and you find narrow trails winding through the trees, with big jumps hidden along them. Every trail on the mountain ends back here.' },
   { id: 'valley', name: 'Valley Park', diff: 'blue', tag: 'Park run', run: 2500, startAlt: 2840, slope: 0.31,
     wind: [44, 0.0021, 16, 0.0063], roll: [18, 5], half: 30, park: [600, 2000], trees: 700, spread: 40,
     kickers: [[700, -7, 'S'], [880, 3, 'M'], [1040, 0, 'L'], [1150, -8, 'S'], [1165, 9, 'M'], [1265, 0, 'L']],
@@ -147,7 +147,7 @@ const inrunDist = (s, a, w) => (s < a - w ? s : s > a + w ? a : s - (s - (a - w)
 const baseY = (s) => -T.slope * s - T.roll[0] * Math.sin(s * 0.0045) - T.roll[1] * Math.sin(s * 0.017 + 0.5)
   - (T.inrun ? T.inrun[1] * inrunDist(s, T.inrun[0], T.inrun[2]) : 0);
 const pisteHalf = (s) => T.half * (1 + 0.233 * Math.sin(s * 0.011 + 0.7));
-function wallH(ad) { const d = Math.max(0, ad - (T.hub ? 200 : 16)) / 430; return 460 * (1 - Math.exp(-d * d)); }
+function wallH(ad) { const d = Math.max(0, ad - (T.hub ? 520 : 16)) / 430; return 460 * (1 - Math.exp(-d * d)); }
 
 // Terrain park zone: groomed smooth so features sit on clean snow
 let PARK_START = 1e9, PARK_END = -1e9;
@@ -160,7 +160,7 @@ function heightAt(x, z) {
   const off = smooth(ph - 6, ph + 60, ad);
   const pk = parkMask(s) * (1 - off);
   let h = baseY(s) + wallH(ad);
-  h += fbm(x * 0.0035, z * 0.0035, 3) * (5 * (1 - 0.8 * pk) + 34 * off);
+  h += fbm(x * 0.0035, z * 0.0035, 3) * (5 * (1 - 0.8 * pk) + (T.hub ? 9 : 34) * off);
   h += simplex2(x * 0.021 + 5.2, z * 0.021) * (0.7 * (1 - pk) + 2.6 * off);
   h += simplex2(x * 0.075 - 3.1, z * 0.075 + 1.7) * (0.1 * (1 - pk) + 0.45 * off);
   if (LAKE) h = lakeCarve(x, s, h);
@@ -241,6 +241,41 @@ function addRail(s0, u, kind) {
 }
 const NO_PIPE = { kind: 'pipe', s0: 1e9, u: 0, len: 0, reach: 0 };
 let PIPE = NO_PIPE;
+/* ---------- Mountain Village layout ----------
+   A square with the gondola ring near the top, a wide main run below it, and forest everywhere else.
+   Six narrow trails wind down through the forest, four cut-throughs link them to the main run, and
+   big jumps (L and XL gaps) are hidden along the forest trails. */
+const PLAZA_S = 230, PLAZA_R = 46, PLAZA_CLEAR = 96;
+const FOREST_TRAILS = [
+  { off: -380, a: 38, f: 0.0041, ph: 0.3 }, { off: -265, a: 30, f: 0.0055, ph: 2.1 }, { off: -150, a: 26, f: 0.0047, ph: 4.0 },
+  { off: 150, a: 28, f: 0.0052, ph: 1.2 }, { off: 265, a: 34, f: 0.0044, ph: 3.3 }, { off: 380, a: 40, f: 0.0058, ph: 5.1 },
+];
+const FOREST_HALF = 9;
+const CONNECTORS = [560, 1250, 1950, 2650];
+const forestX = (tr, s) => centerX(s) + tr.off + tr.a * Math.sin(s * tr.f + tr.ph);
+function addHubFeatures() {
+  FOREST_TRAILS.forEach((tr, i) => {
+    [720, 1480, 2250].forEach((base, j) => {
+      const s0 = base + i * 95;
+      const size = (i + j) % 3 === 2 ? 'XL' : 'L';
+      if (s0 + KICK[size].Lr + KICK[size].Lt + KICK[size].Ll > RUN - 80) return;
+      addKicker(s0, forestX(tr, s0) - centerX(s0), size);
+    });
+  });
+}
+// true where the village must stay free of trees and rocks (m = extra margin)
+function hubClear(x, s, m) {
+  const cx = centerX(s), ad = Math.abs(x - cx);
+  if (ad < pisteHalf(s) + 4 + m) return true;                                      // main run
+  if (Math.hypot(x - centerX(PLAZA_S), s - PLAZA_S) < PLAZA_CLEAR + m) return true; // village square
+  for (const tr of FOREST_TRAILS) if (Math.abs(x - forestX(tr, s)) < FOREST_HALF + m) return true;
+  for (const c of CONNECTORS) if (Math.abs(s - (c + ad * 0.28)) < 7 + m) return true;   // cut-throughs, angled downhill
+  for (const f of FEATURES) {
+    if (s > f.s0 - 12 && s < f.s0 + f.len + 12 && Math.abs(x - (cx + f.u)) < f.reach + 5 + m) return true;
+  }
+  return false;
+}
+
 function setTrail(id) {
   T = TRAILS.find((t) => t.id === id) || TRAILS[0];
   RUN = T.run; START_ALT = T.startAlt;
@@ -248,6 +283,7 @@ function setTrail(id) {
   FEATURES.length = 0; RAILS.length = 0;
   for (const [s0, u, size] of T.kickers) addKicker(s0, u, size);
   for (const [s0, u, kind] of T.rails) addRail(s0, u, kind);
+  if (T.hub) addHubFeatures();
   PIPE = T.pipe ? { kind: 'pipe', s0: T.pipe[0], u: 0, len: T.pipe[1], reach: PIPE_HALF } : NO_PIPE;
   if (T.pipe) FEATURES.push(PIPE);
   LAKE = null;
@@ -774,11 +810,17 @@ function populateChunk(ch, ci) {
   const buckets = Array.from({ length: TREE_VARIANTS }, () => []);
   for (let k = 0; k < T.trees; k++) {
     const z = ch.zTop - rng() * CHUNK, s = -z;
-    const side = rng() < 0.5 ? -1 : 1;
-    const off = 3 + (-Math.log(1 - rng() * 0.999)) * T.spread;
-    if (off > 430) continue;
-    const x = centerX(s) + side * (pisteHalf(s) + off);
-    if (Math.abs(x) > 570) continue;
+    let x, off = 0;
+    if (T.hub) {   // village: forest everywhere except the square, the main run and the trails
+      x = centerX(s) + (rng() * 2 - 1) * 540;
+      if (Math.abs(x) > 570 || hubClear(x, s, 0)) continue;
+    } else {
+      const side = rng() < 0.5 ? -1 : 1;
+      off = 3 + (-Math.log(1 - rng() * 0.999)) * T.spread;
+      if (off > 430) continue;
+      x = centerX(s) + side * (pisteHalf(s) + off);
+      if (Math.abs(x) > 570) continue;
+    }
     if (s > PIPE.s0 - 10 && s < PIPE.s0 + PIPE.len + 10 && pisteHalf(s) + off < PIPE_HALF + 4) continue;
     if (liftNear(x, s, 10)) continue;
     normalAt(x, z, _n);
@@ -814,6 +856,7 @@ function populateChunk(ch, ci) {
     const off = 2 + rng() * rng() * 380;
     const x = centerX(s) + side * (pisteHalf(s) + off);
     if (Math.abs(x) > 570) continue;
+    if (T.hub && hubClear(x, s, 2)) continue;
     if (parkMask(s) > 0.01 && pisteHalf(s) + off < PIPE_HALF + 6) continue;
     if (liftNear(x, s, 9)) continue;
     normalAt(x, z, _n);
@@ -1198,7 +1241,7 @@ const wrapA = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const dampAngle = (a, t, k, dt) => a + wrapA(t - a) * (1 - Math.exp(-k * dt));
 
 function resetPlayer() {
-  const s0 = 12;
+  const s0 = T.hub ? PLAZA_S : 12;   // the village starts in the middle of the gondola ring
   P.pos.set(centerX(s0), 0, -s0); P.pos.y = surfH(P.pos.x, P.pos.z);
   P.startY = heightAt(centerX(0), 0);
   P.vel.set(0, 0, 0);
@@ -3061,7 +3104,7 @@ function trailStats(t) {
   if (nb) parts.push(`${nb} box${nb > 1 ? 'es' : ''}`);
   if (t.pipe) parts.push(`${t.pipe[1]} m half-pipe`);
   if (t.lake) { const g = t.kickers.find((k) => KICK[k[2]].gap); if (g) parts.push(`${KICK[g[2]].Lt} m gap over a lake`); }
-  if (t.hub) parts.push(`${TRAILS.length - 1} gondola stations, one to every trail`, 'Ski anywhere: no fixed line');
+  if (t.hub) parts.push(`${TRAILS.length - 1} gondolas in a ring around the village square`, `${FOREST_TRAILS.length} forest trails with hidden jumps`, 'Every trail ends back in the village');
   if (!parts.length) parts.push('Rollers and tight trees, no park');
   return { drop, lift, features: parts };
 }
@@ -3246,7 +3289,27 @@ function frame() {
   composer.render();
 }
 
+// Every trail ends in the Mountain Village: after a short summary the rider skis on into it.
+let villageTimer = null;
+function cancelVillageCountdown() {
+  if (villageTimer) { clearInterval(villageTimer); villageTimer = null; }
+  $('goVillage').textContent = 'Ski on to the village';
+}
+function goToVillage() {
+  cancelVillageCountdown();
+  $('finish').hidden = true;
+  if (ride.active) endRide();
+  chooseTrail('village', true);   // builds the village and drops you in the middle of the square
+  toast('Welcome to the village', 'good', 'gondolas to every trail are around the square');
+}
 function finishRun() {
+  if (T.hub) {   // bottom of the village: straight back up to the square
+    mpOnFinish();
+    resetPlayer();
+    P.running = true;
+    toast('Back at the village square', 'good', 'pick a gondola or ski down again');
+    return;
+  }
   P.running = false; P.finished = true;
   $('fTime').textContent = fmtTime(P.time);
   $('fTop').textContent = Math.round(P.top * 3.6);
@@ -3255,7 +3318,19 @@ function finishRun() {
   $('liftInfo').textContent = `The gondola climbs ${(LIFT.up.L / 1000).toFixed(1)} km back to the top station, about ${fmtClock(LIFT.up.L / GOND.v)}. You can skip the ride at any time.`;
   $('finish').hidden = false;
   mpOnFinish();
-  $('again').focus();
+  $('liftInfo').textContent = `The trail runs out into the Mountain Village, with gondolas to every trail. Or take this trail's gondola back up (${fmtClock(LIFT.up.L / GOND.v)}).`;
+  $('goVillage').focus();
+  // ski on automatically unless a race result is being shown
+  cancelVillageCountdown();
+  if (!(MP.race && MP.race.finished)) {
+    let n = 6;
+    $('goVillage').textContent = `Ski on to the village (${n})`;
+    villageTimer = setInterval(() => {
+      n--;
+      if (n <= 0) goToVillage();
+      else $('goVillage').textContent = `Ski on to the village (${n})`;
+    }, 1000);
+  }
 }
 
 function onResize() {
@@ -3287,7 +3362,7 @@ function updateCourseBar() {
     course.prepend(el);
   };
   const parkEnd = Math.max(0, ...FEATURES.filter((f) => f.kind !== 'pipe').map((f) => f.s0 + f.len), ...RAILS.map((r) => r.s1));
-  const hasPark = parkEnd > 0;
+  const hasPark = parkEnd > 0 && !T.hub;   // the village jumps are hidden in the forest
   if (hasPark) mark(Math.min(...FEATURES.map((f) => f.s0)), parkEnd, 'park');
   if (T.pipe) mark(PIPE.s0, PIPE.s0 + PIPE.len, 'pipe');
   $('lblPark').hidden = !hasPark; $('lblPipe').hidden = !T.pipe;
@@ -3320,7 +3395,9 @@ function goHome() {
   updateWallet();
   $('go').focus();
 }
-$('again').addEventListener('click', startGondola);
+$('again').addEventListener('click', () => { cancelVillageCountdown(); startGondola(); });
+$('goVillage').addEventListener('click', goToVillage);
+for (const id of ['skipTop', 'mpOpen2', 'finishMap', 'finishStore']) $(id).addEventListener('click', cancelVillageCountdown);
 $('skipTop').addEventListener('click', () => { $('finish').hidden = true; arriveTop(); });
 $('skipRide').addEventListener('click', skipRide);
 
@@ -3487,14 +3564,13 @@ function buildStations() {
   STATIONS.length = 0;
   if (!T.hub) return;
   const dests = TRAILS.filter((t) => t.id !== T.id);
+  const pcx = centerX(PLAZA_S), pcz = -PLAZA_S;
   dests.forEach((t, i) => {
-    const s = 150 + i * ((RUN - 330) / Math.max(1, dests.length - 1));
-    const side = i % 2 ? 1 : -1;
-    const u = side * (50 + (i % 3) * 32);
-    const x = centerX(s) + u, z = -s, y = surfH(x, z);
+    const a = (i / dests.length) * Math.PI * 2 + Math.PI / dests.length;
+    const x = pcx + Math.sin(a) * PLAZA_R, z = pcz + Math.cos(a) * PLAZA_R, y = surfH(x, z);
     const g = new THREE.Group();
     g.position.set(x, y, z);
-    g.rotation.y = -side * 0.35;   // sign faces uphill (towards skiers coming down), turned a little to the middle
+    g.rotation.y = Math.atan2(pcx - x, pcz - z);   // sign and ring face the middle of the square
     const add = (geo, mat, px, py, pz, ry = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(px, py, pz); m.rotation.y = ry; m.castShadow = true; m.receiveShadow = true; g.add(m); return m; };
     add(ST.hut, ST.wood, 0, 1.6, -6);
     const roof = add(ST.roof, ST.roofMat, 0, 5.3, -6, Math.PI / 4); roof.scale.set(1, 1, 0.72);
@@ -3502,14 +3578,13 @@ function buildStations() {
     const signMat = new THREE.MeshStandardMaterial({ map: stationSignTexture(t), roughness: 0.6, side: THREE.DoubleSide });
     signMat.userData.perWorld = true;
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(9.6, 3.3), signMat); sign.position.set(0, 9.4, 2.05); g.add(sign);
-    add(ST.tower, ST.steel, 6.5, 11, -10);
-    add(ST.cabin, ST.red, 6.5, 18.6, -10);
+    add(ST.tower, ST.steel, 0, 11, -13);
+    add(ST.cabin, ST.red, 0, 18.6, -13);
     const ringMat = new THREE.MeshBasicMaterial({ color: DIFF[t.diff].color, transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide });
     ringMat.userData.perWorld = true;
-    const ring = new THREE.Mesh(ST.ring, ringMat); ring.rotation.x = -Math.PI / 2; ring.position.set(0, 0.25, 6); g.add(ring);
+    const ring = new THREE.Mesh(ST.ring, ringMat); ring.rotation.x = -Math.PI / 2; ring.scale.setScalar(0.62); ring.position.set(0, 0.25, 9); g.add(ring);
     world.add(g);
-    // the boarding spot is the centre of the ring
-    const spot = new THREE.Vector3(0, 0, 6).applyEuler(g.rotation).add(g.position);
+    const spot = new THREE.Vector3(0, 0, 9).applyEuler(g.rotation).add(g.position);
     STATIONS.push({ t, x: spot.x, z: spot.z, ring });
   });
 }
@@ -3534,7 +3609,7 @@ function boardStation(st) {
 function updateStations(dt) {
   const btn = $('gondolaBtn');
   if (!T.hub || !started || !P.running || P.mode !== 'ground') { if (!btn.hidden) btn.hidden = true; nearStation = null; return; }
-  let best = null, bd = 12 * 12;
+  let best = null, bd = 8 * 8;
   for (const st of STATIONS) {
     const d = (st.x - P.pos.x) ** 2 + (st.z - P.pos.z) ** 2;
     if (d < bd) { bd = d; best = st; }
