@@ -295,7 +295,24 @@ function addBuilding(s0, u, len, w, H, decor) {
   FEATURES.push(b);
   return b;
 }
-const roofY = (b, s) => b.y0 + (b.y1 - b.y0) * ((s - b.s0) / b.len);
+function roofY(b, s) {
+  const v = s - b.s0;
+  let y = b.y0 + (b.y1 - b.y0) * (v / b.len);
+  if (b.dip && v > b.dip.a) { const t = (v - b.dip.a) / (b.len - b.dip.a); y -= b.dip.D * 0.5 * (1 - Math.cos(2 * Math.PI * Math.min(1, t))); }
+  return y;
+}
+// a rail on a roof, with a small ramp up onto it
+function addRoofRail(b, s0, u, kind) {
+  const H = kind === 'box' ? 0.55 : 0.7, Lr = 4.5, len = kind === 'box' ? 10 : 13;
+  const ramp = { kind: 'ramp', s0, u, H, Lr, w: 1.7, len: Lr, reach: 1.7 / 2 + 0.6, bld: b };
+  FEATURES.push(ramp);
+  const sA = s0 + Lr, sB = sA + len;
+  const A = new THREE.Vector3(centerX(sA) + u, roofY(b, sA) + H, -sA);
+  const Bv = new THREE.Vector3(centerX(sB) + u, roofY(b, sB) + H, -sB);
+  const r = { kind, s0: sA, s1: sB, u, A, B: Bv, H, tol: kind === 'box' ? 0.42 : 0.3, dir: Bv.clone().sub(A).normalize(), bld: b };
+  ramp.rail = r;
+  RAILS.push(r);
+}
 function addCityFeatures() {
   const rng = makeRng(4242);
   const PITCH = 0.11;   // roofs slope down a little so you keep your speed
@@ -307,13 +324,17 @@ function addCityFeatures() {
     b.y0 = y0; b.y1 = y0 - len * PITCH;   // the roof plane
     lastB = b;
     if (lastKick) { lastKick.Ll = len; lastKick = null; }
+    const special = i > 0 ? rng() : 1;
+    const dipD = Math.min(5 + rng() * 4, b.H - 3.5);   // never dig below the street
+    if (special < 0.3 && len >= 38 && dipD >= 3) b.dip = { a: 6, D: dipD };                     // drop in, then back up
+    else if (special < 0.62 && len >= 34) addRoofRail(b, s + 7, (rng() < 0.5 ? -1 : 1) * 6, rng() < 0.5 ? 'rail' : 'box');
     const gap = 9 + rng() * 10;
     const nextS = s + len + gap;
     let ny = (i % 3 === 1 || rng() < 0.3) ? b.y1 + 2 + rng() * 2.5 : b.y1 - (2 + rng() * 3.5);
     const tn = heightAt(centerX(nextS), -nextS);
     ny = clamp(ny, tn + 6, tn + 40);   // buildings 6-40 m tall
     const up = ny > b.y1 + 0.5;
-    if (up || gap > 13) {   // a kicker on the roof edge launches you over the gap
+    {   // every roof edge has a kicker (small on drops): the jump assist always carries you to the next roof
       const Lr = up ? 8 : 9;
       lastKick = { kind: 'kicker', roof: true, gap: true, size: 'R', s0: s + len - Lr, u: 0, H: up ? 3.6 : 1.6, Lr, Lt: gap + 1, Ll: 30, w: CITY_W - 6, len: Lr, reach: (CITY_W - 6) / 2, bld: b };
       FEATURES.push(lastKick);
@@ -409,6 +430,10 @@ function surfH(x, z, gi) {
     } else if (f.roof) {
       if (Math.abs(x - cx - f.u) > f.w / 2) continue;
       b = roofY(f.bld, s) - h0 + f.H * (v / f.Lr) * (v / f.Lr); BS.region = 'ramp'; BS.lip = f.Lr - v;
+    } else if (f.bld) {
+      b = bumpOf(f, x - cx - f.u, v);
+      if (b <= 0) continue;
+      b += roofY(f.bld, s) - h0;
     } else b = bumpOf(f, x - cx - f.u, v);
     if (b > best) { best = b; bf = f; reg = BS.region; lip = BS.lip; }
   }
@@ -422,7 +447,8 @@ function surfNormal(x, z, out) {
   surfH(x, z, GNI);
   if (GNI.feat && (GNI.feat.kind === 'bldg' || GNI.feat.roof)) {
     const f = GNI.feat, bl = f.roof ? f.bld : f;
-    let d = (bl.y1 - bl.y0) / bl.len;                                        // roof slope along the course
+    const s0 = clamp(-z, bl.s0 + 0.2, bl.s0 + bl.len - 0.2);
+    let d = (roofY(bl, s0 + 0.2) - roofY(bl, s0 - 0.2)) / 0.4;                // roof slope along the course (dips included)
     if (f.roof) d += (2 * f.H * (-z - f.s0)) / (f.Lr * f.Lr);                // plus the kicker's curve
     return out.set(0, 1, d).normalize();
   }
@@ -1896,7 +1922,7 @@ function recover() {
   if (T.city) {   // ended up in the street: back onto the last roof
     const s = -P.pos.z, cx = centerX(s);
     const roofs = FEATURES.filter((f) => f.kind === 'bldg' && !f.decor);
-    const onRoof = roofs.some((b) => s >= b.s0 && s <= b.s0 + b.len && Math.abs(P.pos.x - cx - b.u) <= b.w / 2);
+    const onRoof = roofs.some((b) => s >= b.s0 && s <= b.s0 + b.len && Math.abs(P.pos.x - cx - b.u) <= b.w / 2 && P.pos.y > roofY(b, s) - 1);
     if (!onRoof) {
       const prev = roofs.filter((b) => b.s0 <= s).pop() || roofs[0];
       const s1 = prev.s0 + 4;
@@ -2138,7 +2164,7 @@ function featureMesh(f, us, vs, colorFn) {
       const u = us[i], x = cx + f.u + u;
       const b = bumpOf(f, u, v), region = BS.region;
       const k = j * nu + i;
-      pos[k * 3] = x; pos[k * 3 + 1] = heightAt(x, z) + b + 0.04; pos[k * 3 + 2] = z;
+      pos[k * 3] = x; pos[k * 3 + 1] = (f.bld ? roofY(f.bld, s) : heightAt(x, z)) + b + 0.04; pos[k * 3 + 2] = z;
       const c = colorFn(u, v, b, region);
       col[k * 3] = c[0]; col[k * 3 + 1] = c[1]; col[k * 3 + 2] = c[2];
       uv[k * 2] = x / 6; uv[k * 2 + 1] = z / 6;
@@ -2207,7 +2233,7 @@ function buildRailMesh(r) {
   if (r.kind === 'rail') {
     for (const t of [0.12, 0.5, 0.88]) {
       const p = r.A.clone().lerp(r.B, t);
-      const gy = heightAt(p.x, p.z);
+      const gy = r.bld ? roofY(r.bld, -p.z) : heightAt(p.x, p.z);
       const h = p.y - 0.07 - (gy - 0.3);
       const post = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, h, 10), paintMat));
       post.position.set(p.x, gy - 0.3 + h / 2, p.z);
@@ -2259,6 +2285,7 @@ function buildLake() {
 }
 function buildPark() {
   for (const f of FEATURES) {
+    if (f.roof || f.kind === 'bldg') continue;   // city: drawn with the roofs
     if (f.kind === 'kicker') {
       const edge = f.w / 2;
       const us = f.cut ? rangeList(-f.reach, f.reach, 0.15, [-edge, edge, -edge - 0.12, edge + 0.12]) : rangeList(-f.reach, f.reach, 0.3);
@@ -2656,58 +2683,161 @@ function updateRideCamera(dt) {
   camState.fov = camera.fov;
 }
 
-function makeWallTexture() {
-  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512;
+// Facade: 8 x 8 window bays (one bay = 3.2 m wide, 3 m tall), snow on the sills, some windows lit
+function makeFacadeTexture() {
+  const S = 1024, B = S / 8;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
   const c = cv.getContext('2d');
-  c.fillStyle = '#c9cdd3'; c.fillRect(0, 0, 256, 512);
   const rng = makeRng(77);
-  for (let y = 0; y < 16; y++) for (let x = 0; x < 6; x++) {
-    c.fillStyle = rng() < 0.35 ? '#ffd890' : '#3b4656';
-    c.fillRect(12 + x * 40, 14 + y * 31, 24, 18);
+  c.fillStyle = '#b9b3ab'; c.fillRect(0, 0, S, S);
+  for (let i = 0; i < 4000; i++) {   // weathered render
+    const g = 150 + rng() * 60;
+    c.fillStyle = `rgba(${g},${g - 6},${g - 12},0.25)`;
+    c.fillRect(rng() * S, rng() * S, 2 + rng() * 6, 2 + rng() * 6);
   }
-  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  for (let r = 0; r < 8; r++) {
+    c.fillStyle = 'rgba(70,64,58,0.35)'; c.fillRect(0, r * B + B - 6, S, 6);   // floor slab line
+    for (let k = 0; k < 8; k++) {
+      const x = k * B + B * 0.22, y = r * B + B * 0.2, w = B * 0.56, h = B * 0.55;
+      c.fillStyle = '#e8e6e2'; c.fillRect(x - 5, y - 5, w + 10, h + 10);        // frame
+      const lit = rng() < 0.32;
+      const gr = c.createLinearGradient(x, y, x + w, y + h);
+      if (lit) { gr.addColorStop(0, '#ffe2a8'); gr.addColorStop(1, '#f0b860'); }
+      else { gr.addColorStop(0, '#5d7088'); gr.addColorStop(0.6, '#2b3646'); gr.addColorStop(1, '#3d4c60'); }
+      c.fillStyle = gr; c.fillRect(x, y, w, h);
+      c.fillStyle = 'rgba(232,230,226,0.9)'; c.fillRect(x + w / 2 - 2, y, 4, h);   // mullion
+      c.fillStyle = '#f7f9fc'; c.fillRect(x - 8, y + h + 4, w + 16, 9);           // snow on the sill
+    }
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
   return t;
 }
-// Buildings: two instanced draws (walls, snow on the roofs) plus the roof kickers
+const roofGap = (b) => (b.decor ? 3 : 0.7);   // roof-snow grid spacing
+
 function buildCity() {
   if (!T.city) return;
   const blds = FEATURES.filter((f) => f.kind === 'bldg');
-  const wallMat = new THREE.MeshStandardMaterial({ map: makeWallTexture(), roughness: 0.8 });
-  const snowMat = new THREE.MeshStandardMaterial({ color: 0xf2f6fb, roughness: 0.85 });
-  wallMat.userData.perWorld = true; snowMat.userData.perWorld = true;
-  const box = new THREE.BoxGeometry(1, 1, 1);
-  const walls = new THREE.InstancedMesh(box, wallMat, blds.length);
-  const snow = new THREE.InstancedMesh(box, snowMat, blds.length);
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'YXZ'), p = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
-  const tints = [0xffffff, 0xe7d6c4, 0xc9d6e6, 0xd8c7b2, 0xbfc4ca];
-  blds.forEach((b, i) => {
-    const sm = b.s0 + b.len / 2, cx0 = centerX(b.s0) + b.u, cx1 = centerX(b.s0 + b.len) + b.u;
-    const tilt = Math.atan2(b.y0 - b.y1, b.len), yaw = -Math.atan2(cx1 - cx0, b.len);
-    e.set(-tilt, yaw, 0); q.setFromEuler(e);
-    const depth = b.H + 40;   // walls reach well below the street
-    const topMid = (b.y0 + b.y1) / 2;
-    const L = Math.hypot(b.len, b.y0 - b.y1);
-    p.set((cx0 + cx1) / 2, topMid - depth / 2, -sm);
-    m.compose(p, q, sc.set(b.w, depth, L));
-    walls.setMatrixAt(i, m);
-    col.setHex(tints[i % tints.length]); walls.setColorAt(i, col);
-    p.set((cx0 + cx1) / 2, topMid + 0.18, -sm);
-    m.compose(p, q, sc.set(b.w + 0.5, 0.45, L + 0.5));
-    snow.setMatrixAt(i, m);
+  const tints = [[1, 1, 1], [0.95, 0.86, 0.76], [0.8, 0.86, 0.95], [0.9, 0.8, 0.7], [0.78, 0.8, 0.82], [0.96, 0.92, 0.86]];
+  // --- walls: one merged mesh, UVs in metres so windows keep their size on any building ---
+  const wp = [], wu = [], wc = [], wi = [];
+  const corner = (b, side, end) => {   // side -1/1 across, end 0 = front, 1 = back
+    const s = b.s0 + end * b.len, x = centerX(s) + b.u + side * b.w / 2, z = -s;
+    return { x, z, top: end ? b.y1 : b.y0, bot: heightAt(x, z) - 3, s };
+  };
+  blds.forEach((b, bi) => {
+    const t = tints[bi % tints.length];
+    const c = [corner(b, -1, 0), corner(b, 1, 0), corner(b, 1, 1), corner(b, -1, 1)];
+    for (let k = 0; k < 4; k++) {
+      const A = c[k], Bc = c[(k + 1) % 4];
+      const len = Math.hypot(Bc.x - A.x, Bc.z - A.z), base = wp.length / 3;
+      const u0 = (bi * 7.3) % 8;
+      for (const [P, top, uu] of [[A, true, 0], [A, false, 0], [Bc, true, len], [Bc, false, len]]) {
+        const y = top ? P.top : P.bot;
+        wp.push(P.x, y, P.z);
+        wu.push(u0 + uu / 25.6, (y - P.bot) / 24);
+        wc.push(t[0], t[1], t[2]);
+      }
+      wi.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+    }
   });
-  for (const im of [walls, snow]) { im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); }
-  const kMat = new THREE.MeshStandardMaterial({ color: 0xf6f9fd, roughness: 0.7 }); kMat.userData.perWorld = true;
-  for (const f of FEATURES.filter((x) => x.roof)) {
-    const sh = new THREE.Shape(); sh.moveTo(0, 0);
-    for (let k = 1; k <= 8; k++) { const v = (k / 8) * f.Lr; sh.lineTo(v, f.H * (v / f.Lr) ** 2); }
-    sh.lineTo(f.Lr, 0); sh.lineTo(0, 0);
-    const g = new THREE.ExtrudeGeometry(sh, { depth: f.w, bevelEnabled: false });
-    g.translate(0, 0, -f.w / 2); g.rotateY(Math.PI / 2);   // shape x (along the ramp) now points down the course (-z)
-    const mesh = new THREE.Mesh(g, kMat);
-    mesh.position.set(centerX(f.s0) + f.u, roofY(f.bld, f.s0), -f.s0);
-    mesh.rotation.x = -Math.atan2(f.bld.y0 - f.bld.y1, f.bld.len);   // follows the roof down the course
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    world.add(mesh);
+  const wg = new THREE.BufferGeometry();
+  wg.setAttribute('position', new THREE.Float32BufferAttribute(wp, 3));
+  wg.setAttribute('uv', new THREE.Float32BufferAttribute(wu, 2));
+  wg.setAttribute('color', new THREE.Float32BufferAttribute(wc, 3));
+  wg.setIndex(wi); wg.computeVertexNormals();
+  const wallMat = new THREE.MeshStandardMaterial({ map: makeFacadeTexture(), vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
+  wallMat.userData.perWorld = true;
+  const walls = new THREE.Mesh(wg, wallMat); walls.castShadow = true; walls.receiveShadow = true;
+  world.add(walls);
+
+  // --- roof snow: sampled from the exact riding surface (dips, kickers), with cornices over the edges ---
+  const rp = [], ru = [], rc = [], ri = [];
+  for (const b of blds) {
+    const g = roofGap(b), ov = 0.45;
+    const us = [-b.w / 2 - ov, ...rangeList(-b.w / 2, b.w / 2, b.decor ? g : 1.0), b.w / 2 + ov];
+    const vs = [-ov, ...rangeList(0, b.len, g), b.len + ov];
+    const nu = us.length, base = rp.length / 3;
+    for (const v of vs) {
+      const s = b.s0 + clamp(v, 0, b.len), cx = centerX(s);
+      for (const u of us) {
+        const x = cx + b.u + clamp(u, -b.w / 2, b.w / 2), z = -(b.s0 + v);
+        const edge = u < -b.w / 2 || u > b.w / 2 || v < 0 || v > b.len;
+        let y = b.decor ? roofY(b, s) : surfH(cx + b.u + clamp(u, -b.w / 2 + 0.01, b.w / 2 - 0.01), -s);
+        y += edge ? -0.32 : 0.06;                 // cornice droops over the edge
+        const px = edge ? cx + b.u + u : x;
+        rp.push(px, y, z);
+        ru.push(px / 6, z / 6);
+        const drift = 0.03 * Math.sin(px * 0.7 + z * 0.4) + (edge ? -0.05 : 0);
+        rc.push(SNOW_C[0] + drift, SNOW_C[1] + drift, SNOW_C[2] + drift * 0.5);
+      }
+    }
+    for (let j = 0; j < vs.length - 1; j++) for (let i = 0; i < nu - 1; i++) {
+      const a = base + j * nu + i, bb = a + 1, cc = a + nu, d = cc + 1;
+      ri.push(a, bb, cc, bb, d, cc);
+    }
+  }
+  const rg = new THREE.BufferGeometry();
+  rg.setAttribute('position', new THREE.Float32BufferAttribute(rp, 3));
+  rg.setAttribute('uv', new THREE.Float32BufferAttribute(ru, 2));
+  rg.setAttribute('color', new THREE.Float32BufferAttribute(rc, 3));
+  rg.setIndex(ri); rg.computeVertexNormals();
+  const roofs = new THREE.Mesh(rg, snowMat); roofs.castShadow = true; roofs.receiveShadow = true;
+  world.add(roofs);
+
+  // --- rooftop props on the side blocks, low parapets along the riding roofs ---
+  const rng = makeRng(99);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3();
+  const props = [];
+  for (const b of blds) {
+    if (b.decor) {
+      const n = 1 + Math.floor(rng() * 3);
+      for (let k = 0; k < n; k++) {
+        const s = b.s0 + 4 + rng() * (b.len - 8), u = b.u + (rng() - 0.5) * (b.w - 5);
+        const kind = rng();
+        const [w, h, d] = kind < 0.4 ? [0.9, 2.6, 0.9] : kind < 0.75 ? [2.4, 1.3, 1.6] : [3.2, 3.2, 3.2];   // chimney, AC unit, water tank
+        props.push({ s, u, w, h, d, y: roofY(b, s) });
+      }
+    } else {
+      for (const side of [-1, 1]) props.push({ s: b.s0 + b.len / 2, u: b.u + side * (b.w / 2 - 0.15), w: 0.3, h: 0.7, d: b.len, y: (b.y0 + b.y1) / 2, tilt: Math.atan2(b.y0 - b.y1, b.len) });
+    }
+  }
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const propMat = new THREE.MeshStandardMaterial({ color: 0x7c7a78, roughness: 0.8 }); propMat.userData.perWorld = true;
+  const capMat = new THREE.MeshStandardMaterial({ color: 0xf2f6fb, roughness: 0.9 }); capMat.userData.perWorld = true;
+  const propIM = new THREE.InstancedMesh(box, propMat, props.length), capIM = new THREE.InstancedMesh(box, capMat, props.length);
+  props.forEach((o, i) => {
+    q.setFromEuler(new THREE.Euler(-(o.tilt || 0), 0, 0));
+    p.set(centerX(o.s) + o.u, o.y + o.h / 2, -o.s); m.compose(p, q, sc.set(o.w, o.h, o.d)); propIM.setMatrixAt(i, m);
+    p.y = o.y + o.h + 0.08; m.compose(p, q, sc.set(o.w + 0.12, 0.18, o.d + 0.12)); capIM.setMatrixAt(i, m);   // snow cap
+  });
+  // --- street: lamps with warm light, and parked cars buried in snow ---
+  const lamps = [], cars = [];
+  for (let s = 10; s < RUN + 30; s += 26) for (const side of [-1, 1]) lamps.push({ s, u: side * (CITY_W / 2 + 11) });
+  for (let s = 0; s < RUN; s += 9 + rng() * 14) {
+    const side = rng() < 0.5 ? -1 : 1;
+    cars.push({ s, u: side * (CITY_W / 2 + 4 + rng() * 3), col: [0x8a1f1f, 0x1f3a6b, 0x2b2b2b, 0xbfc3c7, 0x3e5a3a, 0x6b5a2e][Math.floor(rng() * 6)] });
+  }
+  const poleIM = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.09, 0.12, 6, 8), new THREE.MeshStandardMaterial({ color: 0x2a2e33, roughness: 0.5, metalness: 0.6 }), lamps.length);
+  const bulbIM = new THREE.InstancedMesh(new THREE.SphereGeometry(0.32, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffd28a }), lamps.length);
+  lamps.forEach((l, i) => {
+    const x = centerX(l.s) + l.u, z = -l.s, y = heightAt(x, z);
+    m.compose(p.set(x, y + 3, z), q.identity(), sc.set(1, 1, 1)); poleIM.setMatrixAt(i, m);
+    m.compose(p.set(x - Math.sign(l.u) * 0.6, y + 6, z), q, sc.set(1, 0.7, 1)); bulbIM.setMatrixAt(i, m);
+  });
+  const carIM = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ roughness: 0.4, metalness: 0.3 }), cars.length);
+  const carTop = new THREE.InstancedMesh(box, capMat, cars.length);
+  const cc = new THREE.Color();
+  cars.forEach((o, i) => {
+    const x = centerX(o.s) + o.u, z = -o.s, y = heightAt(x, z);
+    q.setFromEuler(new THREE.Euler(0, (rng() - 0.5) * 0.15, 0));
+    m.compose(p.set(x, y + 0.75, z), q, sc.set(1.8, 1.3, 4.3)); carIM.setMatrixAt(i, m); carIM.setColorAt(i, cc.setHex(o.col));
+    m.compose(p.set(x, y + 1.5, z), q, sc.set(1.9, 0.35, 4.0)); carTop.setMatrixAt(i, m);   // snow piled on the roof
+  });
+  for (const im of [propIM, capIM, poleIM, bulbIM, carIM, carTop]) {
+    im.castShadow = im !== bulbIM; im.receiveShadow = true; im.computeBoundingSphere();
+    for (const mt of [].concat(im.material)) mt.userData.perWorld = true;
+    world.add(im);
   }
 }
 
