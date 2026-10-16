@@ -298,6 +298,10 @@ function addBuilding(s0, u, len, w, H, decor) {
 function roofY(b, s) {
   const v = s - b.s0;
   let y = b.y0 + (b.y1 - b.y0) * (v / b.len);
+  if (b.drop && v > b.drop.a) {   // the start tower: a huge steep drop that eases out flat before the kicker
+    const t = Math.min(1, (v - b.drop.a) / (b.len - b.drop.a - b.drop.b));
+    y -= b.drop.D * (t - Math.sin(2 * Math.PI * t) / (2 * Math.PI));
+  }
   if (b.dip && v > b.dip.a) { const t = (v - b.dip.a) / (b.len - b.dip.a); y -= b.dip.D * 0.5 * (1 - Math.cos(2 * Math.PI * Math.min(1, t))); }
   return y;
 }
@@ -317,23 +321,25 @@ function addCityFeatures() {
   const rng = makeRng(4242);
   const PITCH = 0.11;   // roofs slope down a little so you keep your speed
   let s = 0, i = 0, lastKick = null, lastB = null;
-  let y0 = heightAt(centerX(0), 0) + 9;
-  while (s < RUN - 110) {
-    const len = i === 0 ? 80 : 30 + rng() * 24;
+  let y0 = heightAt(centerX(0), 0) + 78;   // start on top of a skyscraper
+  while (s < RUN - 130) {
+    const len = i === 0 ? 150 : 30 + rng() * 24;
     const b = addBuilding(s, 0, len, CITY_W, y0 - heightAt(centerX(s), -s));
     b.y0 = y0; b.y1 = y0 - len * PITCH;   // the roof plane
+    if (i === 0) b.drop = { a: 14, b: 18, D: 52 };   // huge drop-in right at the start
     lastB = b;
     if (lastKick) { lastKick.Ll = len; lastKick = null; }
     const special = i > 0 ? rng() : 1;
     const dipD = Math.min(5 + rng() * 4, b.H - 3.5);   // never dig below the street
     if (special < 0.3 && len >= 38 && dipD >= 3) b.dip = { a: 6, D: dipD };                     // drop in, then back up
     else if (special < 0.62 && len >= 34) addRoofRail(b, s + 7, (rng() < 0.5 ? -1 : 1) * 6, rng() < 0.5 ? 'rail' : 'box');
-    const gap = 9 + rng() * 10;
+    const gap = i === 0 ? 34 : 22 + rng() * 16;   // wide streets: long jumps between roofs
     const nextS = s + len + gap;
-    let ny = (i % 3 === 1 || rng() < 0.3) ? b.y1 + 2 + rng() * 2.5 : b.y1 - (2 + rng() * 3.5);
+    const endY = roofY(b, s + len);
+    let ny = i === 0 ? endY - 6 : (i % 3 === 1 || rng() < 0.3) ? endY + 2 + rng() * 2.5 : endY - (2 + rng() * 3.5);
     const tn = heightAt(centerX(nextS), -nextS);
     ny = clamp(ny, tn + 6, tn + 40);   // buildings 6-40 m tall
-    const up = ny > b.y1 + 0.5;
+    const up = ny > endY + 0.5;
     {   // every roof edge has a kicker (small on drops): the jump assist always carries you to the next roof
       const Lr = up ? 8 : 9;
       lastKick = { kind: 'kicker', roof: true, gap: true, size: 'R', s0: s + len - Lr, u: 0, H: up ? 3.6 : 1.6, Lr, Lt: gap + 1, Ll: 30, w: CITY_W - 6, len: Lr, reach: (CITY_W - 6) / 2, bld: b };
@@ -2723,22 +2729,31 @@ function buildCity() {
   const wp = [], wu = [], wc = [], wi = [];
   const corner = (b, side, end) => {   // side -1/1 across, end 0 = front, 1 = back
     const s = b.s0 + end * b.len, x = centerX(s) + b.u + side * b.w / 2, z = -s;
-    return { x, z, top: end ? b.y1 : b.y0, bot: heightAt(x, z) - 3, s };
+    return { x, z, top: roofY(b, s), bot: heightAt(x, z) - 3, s };
+  };
+  const sidePt = (b, side, s) => {   // a point along a long side, its top following the roof (drops, dips)
+    const x = centerX(s) + b.u + side * b.w / 2, z = -s;
+    return { x, z, top: roofY(b, s), bot: heightAt(x, z) - 3, s };
   };
   blds.forEach((b, bi) => {
     const t = tints[bi % tints.length];
-    const c = [corner(b, -1, 0), corner(b, 1, 0), corner(b, 1, 1), corner(b, -1, 1)];
-    for (let k = 0; k < 4; k++) {
-      const A = c[k], Bc = c[(k + 1) % 4];
+    const n = (b.drop || b.dip) ? Math.ceil(b.len / 3) : 1;
+    const right = [], left = [];
+    for (let j = 0; j <= n; j++) { const s = b.s0 + b.len * j / n; right.push(sidePt(b, 1, s)); left.push(sidePt(b, -1, s)); }
+    left.reverse();
+    const edges = [[corner(b, -1, 0), corner(b, 1, 0)], [corner(b, 1, 1), corner(b, -1, 1)]];
+    for (let j = 0; j < n; j++) { edges.push([right[j], right[j + 1]]); edges.push([left[j], left[j + 1]]); }
+    let ua = (bi * 7.3) % 8;
+    for (const [A, Bc] of edges) {
       const len = Math.hypot(Bc.x - A.x, Bc.z - A.z), base = wp.length / 3;
-      const u0 = (bi * 7.3) % 8;
       for (const [P, top, uu] of [[A, true, 0], [A, false, 0], [Bc, true, len], [Bc, false, len]]) {
         const y = top ? P.top : P.bot;
         wp.push(P.x, y, P.z);
-        wu.push(u0 + uu / 25.6, (y - P.bot) / 24);
+        wu.push((ua + uu) / 25.6, (y - P.bot) / 24);
         wc.push(t[0], t[1], t[2]);
       }
       wi.push(base, base + 1, base + 2, base + 2, base + 1, base + 3);
+      ua += len;
     }
   });
   const wg = new THREE.BufferGeometry();
@@ -2799,7 +2814,11 @@ function buildCity() {
         props.push({ s, u, w, h, d, y: roofY(b, s) });
       }
     } else {
-      for (const side of [-1, 1]) props.push({ s: b.s0 + b.len / 2, u: b.u + side * (b.w / 2 - 0.15), w: 0.3, h: 0.7, d: b.len, y: (b.y0 + b.y1) / 2, tilt: Math.atan2(b.y0 - b.y1, b.len) });
+      const n = (b.drop || b.dip) ? Math.ceil(b.len / 3) : 1;   // parapets follow drops and dips in pieces
+      for (let j = 0; j < n; j++) {
+        const sa = b.s0 + b.len * j / n, sb = b.s0 + b.len * (j + 1) / n, ya = roofY(b, sa), yb = roofY(b, sb);
+        for (const side of [-1, 1]) props.push({ s: (sa + sb) / 2, u: b.u + side * (b.w / 2 - 0.15), w: 0.3, h: 0.7, d: Math.hypot(sb - sa, yb - ya) + 0.05, y: (ya + yb) / 2, tilt: Math.atan2(ya - yb, sb - sa) });
+      }
     }
   }
   const box = new THREE.BoxGeometry(1, 1, 1);
