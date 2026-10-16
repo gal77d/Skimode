@@ -96,7 +96,7 @@ function ridged(x, y, oct) {
    ========================================================= */
 // Every spot on the trail map is one of these. The world is rebuilt from the chosen one.
 const TRAILS = [
-  { id: 'village', name: 'Mountain Village', diff: 'blue', tag: 'Village · forest · all gondolas', hub: true, run: 3200, startAlt: 2350, slope: 0.075,
+  { id: 'village', name: 'Mountain Village', diff: 'blue', tag: 'Village · forest · all gondolas', hub: true, run: 3200, startAlt: 2600, slope: 0.13,
     wind: [26, 0.0019, 10, 0.0055], roll: [9, 3], half: 42, park: null, trees: 1100, spread: 40,
     kickers: [], rails: [], pipe: null, banner: '',
     blurb: 'The heart of the resort: a village square ringed by gondolas to every trail. Below it a wide main run drops 3 km through a thick pine forest. Leave the main run and you find narrow trails winding through the trees, with big jumps hidden along them. Every trail on the mountain ends back here.' },
@@ -134,6 +134,10 @@ const TRAILS = [
     kickers: [[350, 0, 'XL'], [640, 0, 'XL'], [930, 0, 'XL'], [1220, 0, 'XL'], [1510, 0, 'XL'], [1800, 0, 'XL']], rails: [], pipe: null,
     banner: 'GLACIER GAP  ·  SIX 65 m MEGA GAPS', alpine: true, lake: true, rocks: 170, peaks: [430, 1300, 1.7],
     blurb: 'The highest gondola on the hill drops you onto a glacier with six 16-metre kickers in a row, each throwing you 65 m to an 80 m landing. The first one sends you over a frozen lake. Every gap pays 150 coins before tricks, so a clean run is worth 900+.' },
+  { id: 'city', name: 'Rooftops', diff: 'black', tag: 'Snowy city · roof jumps', city: true, run: 1900, startAlt: 2250, slope: 0.085,
+    wind: [12, 0.0021, 4, 0.006], roll: [4, 1.5], half: 60, park: [0, 1900], trees: 0, spread: 40, rocks: -1,
+    kickers: [], rails: [], pipe: null, banner: '',
+    blurb: 'A snowed-in city reached by gondola from the village. Ski from roof to roof: kickers at the roof edges launch you up onto taller buildings, and lower roofs you just drop onto. Hit a wall and you go down; miss a roof and you start again from the last one.' },
   { id: 'monster', name: 'The Monster', diff: 'park', tag: 'One giant jump', price: 10000, run: 1450, startAlt: 3820, slope: 0.40,
     wind: [5, 0.004, 2, 0.011], roll: [3, 1], half: 62, park: [120, 1400], trees: 0, spread: 40, inrun: [500, 0.38, 40],
     kickers: [[500, 0, 'XXL']], rails: [], pipe: null, banner: 'THE MONSTER  ·  320 m  ·  160 m HIGH',
@@ -160,10 +164,14 @@ function heightAt(x, z) {
   const off = smooth(ph - 6, ph + 60, ad);
   const pk = parkMask(s) * (1 - off);
   let h = baseY(s) + wallH(ad);
-  h += fbm(x * 0.0035, z * 0.0035, 3) * (5 * (1 - 0.8 * pk) + (T.hub ? 9 : 34) * off);
+  h += fbm(x * 0.0035, z * 0.0035, 3) * (5 * (1 - 0.8 * pk) + (T.hub ? 4 : 34) * off);
   h += simplex2(x * 0.021 + 5.2, z * 0.021) * (0.7 * (1 - pk) + 2.6 * off);
   h += simplex2(x * 0.075 - 3.1, z * 0.075 + 1.7) * (0.1 * (1 - pk) + 0.45 * off);
   if (LAKE) h = lakeCarve(x, s, h);
+  if (T.hub) {   // the village square is flat
+    const pd = Math.hypot(x - centerX(PLAZA_S), s - PLAZA_S);
+    if (pd < 150) h += (baseY(PLAZA_S) - h) * (1 - smooth(85, 150, pd));
+  }
   return h;
 }
 // A lake sunk into a gorge between a gap kicker's lip and its landing. Water level is flat (W);
@@ -276,6 +284,55 @@ function hubClear(x, s, m) {
   return false;
 }
 
+/* ---------- Rooftops: buildings you ski across ----------
+   A building is a feature with a flat (slightly sloping) roof: the snow on top is a plane from y0 at
+   its front edge to y1 at its back edge. Roof kickers sit on a roof's back edge and aim you at the
+   next roof. Buildings are solid: riding or flying into a wall is a crash. */
+const CITY_W = 26;
+function addBuilding(s0, u, len, w, H, decor) {
+  const y0 = heightAt(centerX(s0) + u, -s0) + H, y1 = heightAt(centerX(s0 + len) + u, -(s0 + len)) + H;
+  const b = { kind: 'bldg', s0, u, len, w, H, y0, y1, reach: w / 2, decor: !!decor };
+  FEATURES.push(b);
+  return b;
+}
+const roofY = (b, s) => b.y0 + (b.y1 - b.y0) * ((s - b.s0) / b.len);
+function addCityFeatures() {
+  const rng = makeRng(4242);
+  const PITCH = 0.11;   // roofs slope down a little so you keep your speed
+  let s = 0, i = 0, lastKick = null, lastB = null;
+  let y0 = heightAt(centerX(0), 0) + 9;
+  while (s < RUN - 110) {
+    const len = i === 0 ? 80 : 30 + rng() * 24;
+    const b = addBuilding(s, 0, len, CITY_W, y0 - heightAt(centerX(s), -s));
+    b.y0 = y0; b.y1 = y0 - len * PITCH;   // the roof plane
+    lastB = b;
+    if (lastKick) { lastKick.Ll = len; lastKick = null; }
+    const gap = 9 + rng() * 10;
+    const nextS = s + len + gap;
+    let ny = (i % 3 === 1 || rng() < 0.3) ? b.y1 + 2 + rng() * 2.5 : b.y1 - (2 + rng() * 3.5);
+    const tn = heightAt(centerX(nextS), -nextS);
+    ny = clamp(ny, tn + 6, tn + 40);   // buildings 6-40 m tall
+    const up = ny > b.y1 + 0.5;
+    if (up || gap > 13) {   // a kicker on the roof edge launches you over the gap
+      const Lr = up ? 8 : 9;
+      lastKick = { kind: 'kicker', roof: true, gap: true, size: 'R', s0: s + len - Lr, u: 0, H: up ? 3.6 : 1.6, Lr, Lt: gap + 1, Ll: 30, w: CITY_W - 6, len: Lr, reach: (CITY_W - 6) / 2, bld: b };
+      FEATURES.push(lastKick);
+    }
+    s = nextS; y0 = ny; i++;
+  }
+  // the last roof runs all the way to the finish line (no kicker into nothing)
+  if (lastKick) FEATURES.splice(FEATURES.indexOf(lastKick), 1);
+  if (lastB) { lastB.len = RUN + 40 - lastB.s0; lastB.y1 = lastB.y0 - lastB.len * PITCH; }
+  // city blocks on both sides of the roof line (solid, too tall to reach)
+  for (const side of [-1, 1]) {
+    for (let s2 = -20; s2 < RUN + 40;) {
+      const len2 = 26 + rng() * 18, w2 = 16 + rng() * 12;
+      addBuilding(s2, side * (CITY_W / 2 + 24 + w2 / 2 + rng() * 8), len2, w2, 18 + rng() * 34, true);
+      s2 += len2 + 7 + rng() * 8;
+    }
+  }
+}
+
 function setTrail(id) {
   T = TRAILS.find((t) => t.id === id) || TRAILS[0];
   RUN = T.run; START_ALT = T.startAlt;
@@ -284,6 +341,7 @@ function setTrail(id) {
   for (const [s0, u, size] of T.kickers) addKicker(s0, u, size);
   for (const [s0, u, kind] of T.rails) addRail(s0, u, kind);
   if (T.hub) addHubFeatures();
+  if (T.city) addCityFeatures();
   PIPE = T.pipe ? { kind: 'pipe', s0: T.pipe[0], u: 0, len: T.pipe[1], reach: PIPE_HALF } : NO_PIPE;
   if (T.pipe) FEATURES.push(PIPE);
   LAKE = null;
@@ -338,18 +396,36 @@ function bumpOf(f, u, v) {
 // Snow surface height including kickers, ramps and the pipe (rails handled separately)
 function surfH(x, z, gi) {
   const s = -z, cx = centerX(s);
+  const h0 = heightAt(x, z);
   let best = 0, bf = null, reg = '', lip = 99;
   for (let i = 0; i < FEATURES.length; i++) {
     const f = FEATURES[i];
     const v = s - f.s0;
     if (v < 0 || v > f.len) continue;
-    const b = bumpOf(f, x - cx - f.u, v);
+    let b;
+    if (f.kind === 'bldg') {
+      if (Math.abs(x - cx - f.u) > f.w / 2) continue;
+      b = roofY(f, s) - h0; BS.region = 'roof'; BS.lip = 99;
+    } else if (f.roof) {
+      if (Math.abs(x - cx - f.u) > f.w / 2) continue;
+      b = roofY(f.bld, s) - h0 + f.H * (v / f.Lr) * (v / f.Lr); BS.region = 'ramp'; BS.lip = f.Lr - v;
+    } else b = bumpOf(f, x - cx - f.u, v);
     if (b > best) { best = b; bf = f; reg = BS.region; lip = BS.lip; }
   }
   if (gi) { gi.feat = bf; gi.kind = bf ? bf.kind : ''; gi.region = reg; gi.lip = lip; }
-  return heightAt(x, z) + best;
+  return h0 + best;
 }
+let GNI = null;
 function surfNormal(x, z, out) {
+  // roofs and roof kickers: exact plane normal (sampling across the roof edge would see the street far below)
+  GNI = GNI || mkGI();
+  surfH(x, z, GNI);
+  if (GNI.feat && (GNI.feat.kind === 'bldg' || GNI.feat.roof)) {
+    const f = GNI.feat, bl = f.roof ? f.bld : f;
+    let d = (bl.y1 - bl.y0) / bl.len;                                        // roof slope along the course
+    if (f.roof) d += (2 * f.H * (-z - f.s0)) / (f.Lr * f.Lr);                // plus the kicker's curve
+    return out.set(0, 1, d).normalize();
+  }
   // finer sampling on the half-pipe's steep transitions so the wall tangent stays exact up to the coping
   const s = -z;
   const inPipeWall = s > PIPE.s0 && s < PIPE.s0 + PIPE.len && Math.abs(x - centerX(s)) > PF;
@@ -1341,7 +1417,10 @@ function groundStep(dt, inp, released) {
   P.sinceGround = 0;
   if (gi.kind === 'kicker') P.lastLip = gi.region === 'ramp' ? gi.lip : 99; else P.lastLip = 99;
   // remember the speed the rider brings onto a kicker's ramp: landing on that kicker's slope gives it back
-  if (gi.kind === 'kicker' && gi.region === 'ramp' && gi.feat && P.rampFeat !== gi.feat) { P.rampFeat = gi.feat; P.rampSpeed = P.vel.length(); }
+  if (gi.kind === 'kicker' && gi.region === 'ramp' && gi.feat && P.rampFeat !== gi.feat) {
+    P.rampFeat = gi.feat; P.rampSpeed = P.vel.length();
+    if (T.hub || T.city) P.rampSpeed = Math.max(P.rampSpeed, 12.5);   // village & city jumps: always enough to make it
+  }
 
   // keep the ski direction on the tangent plane (works on half-pipe walls too)
   const f = P.fwd;
@@ -1380,6 +1459,11 @@ function groundStep(dt, inp, released) {
   speed = P.vel.length();
 
   if (inp.tuck && speed < (T.hub ? 7 : 5)) P.vel.addScaledVector(f, (T.hub ? 3.4 : 1.6) * dt);   // poling / skating
+  // village & city: no speed lost climbing a kicker ramp, so you always reach the lip
+  if ((T.hub || T.city) && gi.kind === 'kicker' && gi.region === 'ramp' && P.rampFeat === gi.feat) {
+    const sp0 = P.vel.length();
+    if (sp0 < P.rampSpeed) P.vel.copy(f).multiplyScalar(P.rampSpeed);
+  }
 
   // snow friction + skid + drag
   const mu = 0.045 + P.brake * 0.42 + 0.22 * Math.min(1, Math.abs(newVl) / (speed + 1));
@@ -1414,6 +1498,7 @@ function groundStep(dt, inp, released) {
   P.pos.addScaledVector(P.vel, dt);
   P.pos.x = clamp(P.pos.x, -560, 560);
   const g2 = groundInfo(P.pos.x, P.pos.z, P.pos.y + 0.3, GI2);
+  if (g2.kind === 'bldg' && g2.h - P.pos.y > 1.2) { P.pos.addScaledVector(P.vel, -dt); crash('Ran into a wall', UP); return P.vel.length(); }
   if (g2.blocked && P.vel.length() > 2.5) { crash(g2.blocked.kind === 'box' ? 'Slammed the box' : 'Clipped the rail', g2.n); return P.vel.length(); }
 
   // a kicker lip always throws you: crossing from the takeoff ramp onto the deck launches you along the ramp's angle
@@ -1566,7 +1651,11 @@ function aimGap(f, hs) {
     if (best.impact <= AIM_MAX_IMPACT || k <= kMin + 1e-3) break;
     k = Math.max(kMin, k * 0.85);
   }
-  const helpAll = hs >= 0.55 * best.hs;
+  // sanity check: if even the best solution misses the landing badly, leave the rider's speed alone
+  simLanding(P.pos, _aimD, best.hs, best.vy, _aimP);
+  const want = sl + f.Lt + f.Ll * 0.5;
+  if (Math.abs(-_aimP.z - want) > f.Ll * 0.5 + 6) return;
+  const helpAll = hs >= 0.55 * best.hs || T.hub || T.city;
   const hsNew = helpAll ? best.hs : hs + (best.hs - hs) * 0.5;
   const vyNew = helpAll ? best.vy : Math.max(P.vel.y, best.vy * hsNew / best.hs);
   P.vel.set(_aimD.x * hsNew, vyNew, _aimD.z * hsNew);
@@ -1597,7 +1686,7 @@ function aimJump(f) {
     if (impact <= AIM_MAX_IMPACT || vy <= vyFloor + 1e-3) break;
     vy = Math.max(vyFloor, vy * 0.85);
   }
-  const hsNew = hs >= 0.55 * hsT ? hsT : hs + (hsT - hs) * 0.5;
+  const hsNew = (hs >= 0.55 * hsT || T.hub || T.city) ? hsT : hs + (hsT - hs) * 0.5;
   P.vel.set(_aimD.x * hsNew, vy, _aimD.z * hsNew);
 }
 
@@ -1650,6 +1739,7 @@ function airStep(dt, inp, steerT, released) {
 
   const gi = groundInfo(P.pos.x, P.pos.z, P.pos.y, GI);
   if (LAKE && P.pos.y <= LAKE.W + 0.15 && inLake(P.pos.x, P.pos.z)) { splash(); return sp; }
+  if ((gi.kind === 'bldg' || (gi.feat && gi.feat.roof)) && gi.h - P.pos.y > 1.5) { crash('Hit a wall', UP); return sp; }
   if (P.pos.y <= gi.h) land(gi);
   return sp;
 }
@@ -1673,7 +1763,7 @@ function land(gi) {
   let reason = null;
   if (upErr > (air < 0.25 ? 1.1 : 0.8 + GEAR.tol)) reason = upErr > 2.0 ? 'Landed on your head' : (fdn > 0 ? 'Backseat — tails first' : 'Nose dive');
   else if (!gi.rail && vtLen > 4 && Math.abs(yawDot) < 0.55) reason = 'Landed sideways';
-  else if (vn > 11.5 + GEAR.impact + (gi.region === 'landing' ? 2.5 : 0)) reason = gi.region === 'landing' ? 'Landed too hard' : 'Cased the flat';
+  else if (vn > 11.5 + GEAR.impact + (gi.region === 'landing' || gi.region === 'roof' ? 2.5 : 0)) reason = gi.region === 'landing' || gi.region === 'roof' ? 'Landed too hard' : 'Cased the flat';
   if (reason) { crash(reason, n); return; }
 
   P.mode = 'ground';
@@ -1803,6 +1893,19 @@ function recover() {
   surfNormal(P.pos.x, P.pos.z, P.up);
   P.lastN.copy(P.up);
   P.yawVis = 0; P.sw = false; P.lean = 0; P.landComp = 0.9; P.comp = 0;
+  if (T.city) {   // ended up in the street: back onto the last roof
+    const s = -P.pos.z, cx = centerX(s);
+    const roofs = FEATURES.filter((f) => f.kind === 'bldg' && !f.decor);
+    const onRoof = roofs.some((b) => s >= b.s0 && s <= b.s0 + b.len && Math.abs(P.pos.x - cx - b.u) <= b.w / 2);
+    if (!onRoof) {
+      const prev = roofs.filter((b) => b.s0 <= s).pop() || roofs[0];
+      const s1 = prev.s0 + 4;
+      P.pos.set(centerX(s1) + prev.u, 0, -s1); P.pos.y = surfH(P.pos.x, P.pos.z);
+      courseDir(s1, P.fwd); surfNormal(P.pos.x, P.pos.z, P.up); P.lastN.copy(P.up);
+      P.vel.copy(P.fwd).multiplyScalar(14);   // a rolling start so the next jump is reachable
+      toast('Back on the roof', 'good', 'try that jump again');
+    }
+  }
 }
 
 /* =========================================================
@@ -2553,10 +2656,66 @@ function updateRideCamera(dt) {
   camState.fov = camera.fov;
 }
 
+function makeWallTexture() {
+  const cv = document.createElement('canvas'); cv.width = 256; cv.height = 512;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#c9cdd3'; c.fillRect(0, 0, 256, 512);
+  const rng = makeRng(77);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 6; x++) {
+    c.fillStyle = rng() < 0.35 ? '#ffd890' : '#3b4656';
+    c.fillRect(12 + x * 40, 14 + y * 31, 24, 18);
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4;
+  return t;
+}
+// Buildings: two instanced draws (walls, snow on the roofs) plus the roof kickers
+function buildCity() {
+  if (!T.city) return;
+  const blds = FEATURES.filter((f) => f.kind === 'bldg');
+  const wallMat = new THREE.MeshStandardMaterial({ map: makeWallTexture(), roughness: 0.8 });
+  const snowMat = new THREE.MeshStandardMaterial({ color: 0xf2f6fb, roughness: 0.85 });
+  wallMat.userData.perWorld = true; snowMat.userData.perWorld = true;
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const walls = new THREE.InstancedMesh(box, wallMat, blds.length);
+  const snow = new THREE.InstancedMesh(box, snowMat, blds.length);
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(0, 0, 0, 'YXZ'), p = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color();
+  const tints = [0xffffff, 0xe7d6c4, 0xc9d6e6, 0xd8c7b2, 0xbfc4ca];
+  blds.forEach((b, i) => {
+    const sm = b.s0 + b.len / 2, cx0 = centerX(b.s0) + b.u, cx1 = centerX(b.s0 + b.len) + b.u;
+    const tilt = Math.atan2(b.y0 - b.y1, b.len), yaw = -Math.atan2(cx1 - cx0, b.len);
+    e.set(-tilt, yaw, 0); q.setFromEuler(e);
+    const depth = b.H + 40;   // walls reach well below the street
+    const topMid = (b.y0 + b.y1) / 2;
+    const L = Math.hypot(b.len, b.y0 - b.y1);
+    p.set((cx0 + cx1) / 2, topMid - depth / 2, -sm);
+    m.compose(p, q, sc.set(b.w, depth, L));
+    walls.setMatrixAt(i, m);
+    col.setHex(tints[i % tints.length]); walls.setColorAt(i, col);
+    p.set((cx0 + cx1) / 2, topMid + 0.18, -sm);
+    m.compose(p, q, sc.set(b.w + 0.5, 0.45, L + 0.5));
+    snow.setMatrixAt(i, m);
+  });
+  for (const im of [walls, snow]) { im.castShadow = true; im.receiveShadow = true; im.computeBoundingSphere(); world.add(im); }
+  const kMat = new THREE.MeshStandardMaterial({ color: 0xf6f9fd, roughness: 0.7 }); kMat.userData.perWorld = true;
+  for (const f of FEATURES.filter((x) => x.roof)) {
+    const sh = new THREE.Shape(); sh.moveTo(0, 0);
+    for (let k = 1; k <= 8; k++) { const v = (k / 8) * f.Lr; sh.lineTo(v, f.H * (v / f.Lr) ** 2); }
+    sh.lineTo(f.Lr, 0); sh.lineTo(0, 0);
+    const g = new THREE.ExtrudeGeometry(sh, { depth: f.w, bevelEnabled: false });
+    g.translate(0, 0, -f.w / 2); g.rotateY(Math.PI / 2);   // shape x (along the ramp) now points down the course (-z)
+    const mesh = new THREE.Mesh(g, kMat);
+    mesh.position.set(centerX(f.s0) + f.u, roofY(f.bld, f.s0), -f.s0);
+    mesh.rotation.x = -Math.atan2(f.bld.y0 - f.bld.y1, f.bld.len);   // follows the roof down the course
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    world.add(mesh);
+  }
+}
+
 function buildWorld() {
   NCH = Math.ceil((Z_START + RUN + 140) / CHUNK);
   LIFT = makeLift();
   buildPark();
+  buildCity();
   buildLift();
   buildBackdrop();
   buildStations();
@@ -2659,7 +2818,7 @@ function updateHUD(dt, speed) {
   $('prog').style.width = `${(s / RUN) * 100}%`;
   const deg = Math.acos(clamp(P.up.y, -1, 1)) * 180 / Math.PI;
   $('grade').textContent = `${Math.round(deg)}°`;
-  const zone = s >= PIPE.s0 && s <= PIPE.s0 + PIPE.len ? 'Half-pipe' : (parkMask(s) > 0.5 && FEATURES.length ? 'Terrain park' : T.name);
+  const zone = s >= PIPE.s0 && s <= PIPE.s0 + PIPE.len ? 'Half-pipe' : (parkMask(s) > 0.5 && FEATURES.length && !T.city ? 'Terrain park' : T.name);
   $('zone').textContent = zone;
 }
 function trackFPS(dt) {
@@ -2734,7 +2893,7 @@ const itemOf = (cat, id) => SHOP[cat].items.find((i) => i.id === id) || SHOP[cat
 const GEAR = { drag: 1, pop: 1, grip: 1, tol: 0, impact: 0 };
 
 // Coins for a landed jump: size of the feature + tricks, ×1.5 for a stomped landing
-const JUMP_COINS = { 'kicker-S': 10, 'kicker-M': 20, 'kicker-L': 45, 'kicker-XL': 150, 'kicker-XXL': 500, pipe: 15 };
+const JUMP_COINS = { 'kicker-R': 25, 'kicker-S': 10, 'kicker-M': 20, 'kicker-L': 45, 'kicker-XL': 150, 'kicker-XXL': 500, pipe: 15 };
 function jumpCoins(launch, spinDeg, flips, grabbed, clean, perfect) {
   let c = (JUMP_COINS[launch] ?? 5) + (spinDeg / 180) * 5 + flips * 25 + (grabbed ? 10 : 0) + (perfect ? 5 : 0);
   if (clean) c *= 1.5;
@@ -2878,6 +3037,7 @@ addEventListener('resize', setShopView);
    Trail map: pick a spot, the world rebuilds for that trail
    ========================================================= */
 const MAP_ART = {
+  city: { d: 'M60 30 C 70 50, 54 70, 66 92', label: [76, 40], lift: [[88, 96], [84, 26]], w: 15 },
   village: { d: 'M150 404 C 200 392, 250 414, 310 400', label: [168, 412], lift: [[322, 408], [318, 388]], w: 26 },
   valley: { d: 'M318 98 C 284 150, 372 190, 320 240 S 362 320, 336 384', label: [348, 150], lift: [[370, 390], [362, 96]], w: 15 },
   bigair: { d: 'M486 212 C 492 238, 482 266, 490 304', label: [500, 226], lift: [[518, 308], [514, 206]], jump: [487, 256], w: 17 },
@@ -3235,8 +3395,6 @@ function chooseTrail(id, andRide) {
     if (andRide) start(); else go.focus();
   }, 40);
 }
-$('openMap').addEventListener('click', () => openMap('intro'));
-$('finishMap').addEventListener('click', () => openMap('finish'));
 $('closeMap').addEventListener('click', closeMap);
 $('rideTrail').addEventListener('click', () => {
   const t = TRAILS.find((x) => x.id === mapSel);
@@ -3362,7 +3520,7 @@ function updateCourseBar() {
     course.prepend(el);
   };
   const parkEnd = Math.max(0, ...FEATURES.filter((f) => f.kind !== 'pipe').map((f) => f.s0 + f.len), ...RAILS.map((r) => r.s1));
-  const hasPark = parkEnd > 0 && !T.hub;   // the village jumps are hidden in the forest
+  const hasPark = parkEnd > 0 && !T.hub && !T.city;   // the village jumps are hidden in the forest; the city is all roofs
   if (hasPark) mark(Math.min(...FEATURES.map((f) => f.s0)), parkEnd, 'park');
   if (T.pipe) mark(PIPE.s0, PIPE.s0 + PIPE.len, 'pipe');
   $('lblPark').hidden = !hasPark; $('lblPipe').hidden = !T.pipe;
@@ -3397,7 +3555,7 @@ function goHome() {
 }
 $('again').addEventListener('click', () => { cancelVillageCountdown(); startGondola(); });
 $('goVillage').addEventListener('click', goToVillage);
-for (const id of ['skipTop', 'mpOpen2', 'finishMap', 'finishStore']) $(id).addEventListener('click', cancelVillageCountdown);
+for (const id of ['skipTop', 'mpOpen2', 'finishStore']) $(id).addEventListener('click', cancelVillageCountdown);
 $('skipTop').addEventListener('click', () => { $('finish').hidden = true; arriveTop(); });
 $('skipRide').addEventListener('click', skipRide);
 
@@ -3592,7 +3750,13 @@ function buildStations() {
 let nearStation = null;
 function boardStation(st) {
   if (!st) return;
-  if (!mapOwned(st.t)) { toast(`${st.t.name} is locked`, 'bad', `Unlock it on the trail map for ${nf.format(st.t.price)} coins`); return; }
+  if (!mapOwned(st.t)) {
+    if (SAVE.coins < st.t.price) { toast(`${st.t.name} is locked`, 'bad', `you need ${nf.format(st.t.price - SAVE.coins)} more coins`); return; }
+    SAVE.coins -= st.t.price; SAVE.owned.push('map-' + st.t.id); saveGame(); updateWallet();
+    toast(`Unlocked ${st.t.name}!`, 'good', "it's yours for good");
+    nearStation = null;   // refresh the button: it now offers the ride
+    return;
+  }
   $('gondolaBtn').hidden = true;
   nearStation = null;
   P.vel.set(0, 0, 0);
@@ -3618,7 +3782,7 @@ function updateStations(dt) {
   if (best !== nearStation) {
     nearStation = best;
     btn.hidden = !best;
-    if (best) btn.textContent = mapOwned(best.t) ? `🚡 Gondola to ${best.t.name}` : `🔒 ${best.t.name} · ${nf.format(best.t.price)} coins`;
+    if (best) btn.textContent = mapOwned(best.t) ? `🚡 Gondola to ${best.t.name}` : (SAVE.coins >= best.t.price ? `🔓 Unlock ${best.t.name} · ${nf.format(best.t.price)} coins` : `🔒 ${best.t.name} · ${nf.format(best.t.price)} coins`);
   }
 }
 $('gondolaBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); boardStation(nearStation); });
