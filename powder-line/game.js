@@ -134,6 +134,10 @@ const TRAILS = [
     kickers: [[350, 0, 'XL'], [640, 0, 'XL'], [930, 0, 'XL'], [1220, 0, 'XL'], [1510, 0, 'XL'], [1800, 0, 'XL']], rails: [], pipe: null,
     banner: 'GLACIER GAP  ·  SIX 65 m MEGA GAPS', alpine: true, lake: true, rocks: 170, peaks: [430, 1300, 1.7],
     blurb: 'The highest gondola on the hill drops you onto a glacier with six 16-metre kickers in a row, each throwing you 65 m to an 80 m landing. The first one sends you over a frozen lake. Every gap pays 150 coins before tricks, so a clean run is worth 900+.' },
+  { id: 'speed', name: 'Speed Trap', diff: 'black', tag: 'Straight · steep · speed trap', run: 2600, startAlt: 3350, slope: 0.46,
+    wind: [8, 0.0012, 3, 0.004], roll: [10, 2], half: 30, park: null, trees: 1000, spread: 26, rocks: 60,
+    kickers: [], rails: [], pipe: null, banner: '', speed: [1500, 1600],
+    blurb: 'Built for one thing: going fast. A wide, dead-straight 2.6 km chute. Tuck all the way and you pass 150 km/h. Near the bottom a 100 m speed trap between two red banners clocks you, and your best speed is saved.' },
   { id: 'city', name: 'Rooftops', diff: 'black', tag: 'Snowy city · roof jumps', city: true, run: 1900, startAlt: 2250, slope: 0.085,
     wind: [12, 0.0021, 4, 0.006], roll: [4, 1.5], half: 60, park: [0, 1900], trees: 0, spread: 40, rocks: -1,
     kickers: [], rails: [], pipe: null, banner: '',
@@ -257,9 +261,14 @@ const PLAZA_S = 230, PLAZA_R = 46, PLAZA_CLEAR = 96;
 const FOREST_TRAILS = [
   { off: -380, a: 38, f: 0.0041, ph: 0.3 }, { off: -265, a: 30, f: 0.0055, ph: 2.1 }, { off: -150, a: 26, f: 0.0047, ph: 4.0 },
   { off: 150, a: 28, f: 0.0052, ph: 1.2 }, { off: 265, a: 34, f: 0.0044, ph: 3.3 }, { off: 380, a: 40, f: 0.0058, ph: 5.1 },
+  // more trails in between, so there is a way through the trees wherever you go
+  { off: -95, a: 13, f: 0.0068, ph: 1.7 }, { off: 95, a: 13, f: 0.0063, ph: 4.4 },
+  { off: -208, a: 12, f: 0.0074, ph: 0.9 }, { off: 208, a: 12, f: 0.0071, ph: 2.8 },
+  { off: -322, a: 13, f: 0.0066, ph: 5.6 }, { off: 322, a: 13, f: 0.0061, ph: 0.4 },
+  { off: -455, a: 20, f: 0.0049, ph: 3.9 }, { off: 455, a: 20, f: 0.0053, ph: 1.4 },
 ];
 const FOREST_HALF = 9;
-const CONNECTORS = [560, 1250, 1950, 2650];
+const CONNECTORS = [340, 560, 900, 1250, 1600, 1950, 2300, 2650, 2950];   // the first one starts right below the square
 const forestX = (tr, s) => centerX(s) + tr.off + tr.a * Math.sin(s * tr.f + tr.ph);
 function addHubFeatures() {
   FOREST_TRAILS.forEach((tr, i) => {
@@ -1134,7 +1143,8 @@ function buildSkier() {
     add(sg, new RoundedBoxGeometry(0.06, 0.04, 0.06, 2, 0.012), M.bootAccent, 0, 0.1, 0.22);
     add(sg, new THREE.BoxGeometry(0.008, 0.006, 0.09), M.dark, 0.045, 0.03, 0.26, 0.35);
     add(sg, new THREE.BoxGeometry(0.008, 0.006, 0.09), M.dark, -0.045, 0.03, 0.26, 0.35);
-    const boot = grp(sg, 0, 0.045, 0.0);
+    const foot = grp(rig, side * 0.12, 0, 0);   // boots ride on the ski, but can step out of it (E trick)
+    const boot = grp(foot, 0, 0.045, 0.0);
     add(boot, new RoundedBoxGeometry(0.106, 0.034, 0.315, 2, 0.012), M.dark, 0, 0.017, 0);
     add(boot, new RoundedBoxGeometry(0.112, 0.12, 0.28, 3, 0.04), M.boot, 0, 0.09, -0.005);
     add(boot, new RoundedBoxGeometry(0.114, 0.05, 0.11, 2, 0.02), M.bootAccent, 0, 0.11, -0.1);
@@ -1147,7 +1157,7 @@ function buildSkier() {
     }
     add(boot, new RoundedBoxGeometry(0.014, 0.02, 0.05, 1, 0.004), M.metal, side * 0.058, 0.1, -0.06);
     add(boot, new RoundedBoxGeometry(0.014, 0.02, 0.05, 1, 0.004), M.metal, side * 0.058, 0.13, 0.03);
-    sg.userData.boot = boot;
+    sg.userData.boot = boot; sg.userData.foot = foot;
     return sg;
   }
   const skiL = makeSkiAssembly(-1), skiR = makeSkiAssembly(1);
@@ -1236,15 +1246,16 @@ function buildSkier() {
   }
   const armL = makeArm(-1), armR = makeArm(1);
 
-  return { M, root, rig, skiL, skiR, pelvis, spine, chest, neck, head, legL, legR, armL, armR, ANKLE, THIGH, SHIN };
+  const sk = { M, root, rig, skiL, skiR, pelvis, spine, chest, neck, head, legL, legR, armL, armR, ANKLE, THIGH, SHIN,
+    pose: { ...POSE.stance }, Wt: { air: 0, rail: 0, crash: 0 } };
+  sk.board = addBoard(sk);
+  return sk;
 }
 
-const skier = buildSkier();
-scene.add(skier.root);
 // Snowboard: board + bindings in the rig, feet spread along it (rig is turned sideways in board mode)
 const STANCE = 0.27;
-skier.board = (() => {
-  const M = skier.M, g = new THREE.Group();
+function addBoard(sk) {
+  const M = sk.M, g = new THREE.Group();
   const deck = new THREE.Mesh(boardGeometry(), [M.skiEdge, M.skiEdge, M.skiTop, M.skiBase, M.skiEdge, M.skiEdge]);
   deck.castShadow = true; deck.receiveShadow = true; g.add(deck);
   const part = (geo, mat, x, y, z, rx = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rx; m.castShadow = true; m.receiveShadow = true; g.add(m); };
@@ -1255,19 +1266,19 @@ skier.board = (() => {
     part(new RoundedBoxGeometry(0.17, 0.03, 0.045, 2, 0.01), M.bootAccent, sx * STANCE, 0.1, -0.12);
   }
   g.visible = false;
-  skier.rig.add(g);
+  sk.rig.add(g);
   return g;
-})();
+}
 let BOARD = false;
 
 const _ik = new THREE.Vector3(), _ikM = new THREE.Matrix4();
-function solveLeg(leg, skiGroup) {
-  skiGroup.updateMatrix();
-  _ik.copy(skier.ANKLE).applyMatrix4(skiGroup.matrix);
-  skier.pelvis.updateMatrix();
-  _ikM.copy(skier.pelvis.matrix).invert();
+function solveLeg(sk, leg, foot) {
+  foot.updateMatrix();
+  _ik.copy(sk.ANKLE).applyMatrix4(foot.matrix);
+  sk.pelvis.updateMatrix();
+  _ikM.copy(sk.pelvis.matrix).invert();
   _ik.applyMatrix4(_ikM).sub(leg.hip);
-  const A = skier.THIGH, B = skier.SHIN;
+  const A = sk.THIGH, B = sk.SHIN;
   const d = clamp(_ik.length(), 0.08, A + B - 0.002);
   const dyz = Math.hypot(_ik.y, _ik.z);
   const phi = Math.atan2(_ik.z, -_ik.y);
@@ -1332,7 +1343,7 @@ const G = 9.81, MASS = 80, RHO = 1.1;
 const P = {
   pos: new THREE.Vector3(), vel: new THREE.Vector3(),
   fwd: new THREE.Vector3(0, 0, -1), right: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 1, 0), lastN: new THREE.Vector3(0, 1, 0),
-  steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0,
+  steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0, boardUp: 0, cross: 0, overT: 0, crossT: 0,
   mode: 'ground', yawVis: 0, sw: false, sinceGround: 0, lastLip: 99, popped: false, prevSpace: false,
   airT: 0, q: new THREE.Quaternion(), q0: new THREE.Quaternion(), v0: new THREE.Vector3(0, 0, -1), trajW: 1,
   spin: 0, flip: 0, grabT: 0, autoFlip: 0, autoFlipRate: 0, wantFlip: false,
@@ -1355,9 +1366,9 @@ function resetPlayer() {
   P.vel.set(0, 0, 0);
   courseDir(s0, P.fwd);
   surfNormal(P.pos.x, P.pos.z, P.up); P.lastN.copy(P.up);
-  Object.assign(P, { steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0, mode: 'ground', yawVis: 0, sw: false,
+  Object.assign(P, { steer: 0, tuck: 0, brake: 0, lean: 0, comp: 0, landComp: 0, charge: 0, grab: 0, boardUp: 0, cross: 0, overT: 0, crossT: 0, mode: 'ground', yawVis: 0, sw: false,
     sinceGround: 0, lastLip: 99, popped: false, airT: 0, spin: 0, flip: 0, grabT: 0, autoFlip: 0, wantFlip: false, onRail: null, railT: 0, crashT: 0,
-    time: 0, top: 0, finished: false, score: 0, lastAir: 0, runCoins: 0, launch: '', perfect: false, inLake: false, rampFeat: null, rampSpeed: 0 });
+    time: 0, top: 0, finished: false, score: 0, lastAir: 0, runCoins: 0, trapT0: 0, trapDone: false, launch: '', perfect: false, inLake: false, rampFeat: null, rampSpeed: 0 });
   camState.init = false;
 }
 
@@ -1375,9 +1386,9 @@ function groundQuat(up, out) {
 
 /* ---------- input ---------- */
 const keys = new Set();
-const touch = { L: false, R: false, T: false, B: false, J: false };
+const touch = { L: false, R: false, T: false, B: false, J: false, E: false, Q: false };
 const CODE_MAP = {
-  KeyA: 'a', KeyD: 'd', KeyW: 'w', KeyS: 's', KeyR: 'r', KeyF: 'f',
+  KeyA: 'a', KeyD: 'd', KeyW: 'w', KeyS: 's', KeyR: 'r', KeyF: 'f', KeyE: 'e', KeyQ: 'q',
   ArrowLeft: 'arrowleft', ArrowRight: 'arrowright', ArrowUp: 'arrowup', ArrowDown: 'arrowdown', Space: ' ',
 };
 const keyName = (e) => CODE_MAP[e.code] || (e.key || '').toLowerCase();
@@ -1398,6 +1409,8 @@ function readInput() {
     tuck: keys.has('w') || keys.has('arrowup') || touch.T,
     brake: keys.has('s') || keys.has('arrowdown') || touch.B,
     space: keys.has(' ') || touch.J,
+    over: keys.has('e') || touch.E,    // E: skis / board over the head
+    cross: keys.has('q') || touch.Q,   // Q: iron cross (skis) / method (board)
   };
 }
 
@@ -1613,7 +1626,7 @@ function startAir(gi) {
     const side = Math.sign(P.pos.x - centerX(-P.pos.z)) || 1;
     if (P.vel.x * side > -0.4) P.vel.x = -side * 0.4;
   }
-  P.mode = 'air'; P.airT = 0; P.spin = 0; P.flip = 0; P.grabT = 0;
+  P.mode = 'air'; P.airT = 0; P.spin = 0; P.flip = 0; P.grabT = 0; P.overT = 0; P.crossT = 0;
   P.launch = gi && gi.feat ? (gi.feat.kind === 'kicker' ? (gi.region === 'ramp' ? 'kicker-' + gi.feat.size : '') : gi.feat.kind) : '';
   P.aimFeat = gi && gi.feat && gi.feat.kind === 'kicker' && gi.region === 'ramp' ? gi.feat : null;
   if (P.aimFeat) aimJump(P.aimFeat);
@@ -1729,6 +1742,10 @@ function airStep(dt, inp, steerT, released) {
   if (!inp.space) P.charge = 0;
   P.grab = damp(P.grab, inp.space && P.airT > 0.12 ? 1 : 0, 8, dt);
   if (P.grab > 0.7) P.grabT += dt;
+  P.boardUp = damp(P.boardUp, inp.over && P.airT > 0.1 ? 1 : 0, 9, dt);
+  if (P.boardUp > 0.7) P.overT += dt;
+  P.cross = damp(P.cross, inp.cross && !inp.over && P.airT > 0.1 ? 1 : 0, 9, dt);
+  if (P.cross > 0.7) P.crossT += dt;
 
   P.vel.y -= G * dt;
   const sp = P.vel.length();
@@ -1793,7 +1810,9 @@ function land(gi) {
   P.pos.y = gi.h;
 
   let reason = null;
-  if (upErr > (air < 0.25 ? 1.1 : 0.8 + GEAR.tol)) reason = upErr > 2.0 ? 'Landed on your head' : (fdn > 0 ? 'Backseat — tails first' : 'Nose dive');
+  if (P.boardUp > 0.45) reason = BOARD ? 'Landed without your board' : 'Landed without your skis';
+  else if (!BOARD && P.cross > 0.55) reason = 'Landed with crossed skis';
+  else if (upErr > (air < 0.25 ? 1.1 : 0.8 + GEAR.tol)) reason = upErr > 2.0 ? 'Landed on your head' : (fdn > 0 ? 'Backseat — tails first' : 'Nose dive');
   else if (!gi.rail && vtLen > 4 && Math.abs(yawDot) < 0.55) reason = 'Landed sideways';
   else if (vn > 11.5 + GEAR.impact + (gi.region === 'landing' || gi.region === 'roof' ? 2.5 : 0)) reason = gi.region === 'landing' || gi.region === 'roof' ? 'Landed too hard' : 'Cased the flat';
   if (reason) { crash(reason, n); return; }
@@ -1834,13 +1853,16 @@ function scoreTrick(air, sw, vn) {
   if (flips) parts.push((flips === 2 ? 'Double ' : flips >= 3 ? 'Triple ' : '') + (P.flip < 0 ? 'front flip' : 'backflip'));
   const grabbed = P.grabT > 0.25;
   if (grabbed) parts.push(parts.length ? 'grab' : 'Grab');
+  const over = P.overT > 0.25, crossed = P.crossT > 0.25;
+  if (crossed) parts.push(BOARD ? 'Method' : 'Iron cross');
+  if (over) parts.push(BOARD ? 'Board over the head' : 'Skis over the head');
   const clean = vn < (P.launch === 'kicker-XL' || P.launch === 'kicker-XXL' ? 10.5 : 8);
-  let pts = air * 120 + spinDeg * 1.2 + flips * 500 + (grabbed ? 150 : 0);
+  let pts = air * 120 + spinDeg * 1.2 + flips * 500 + (grabbed ? 150 : 0) + (over ? 350 : 0) + (crossed ? 200 : 0);
   if (sw) pts *= 1.2;
   if (clean) pts *= 1.15;
   pts = Math.round(pts);
   P.score += pts;
-  const coins = jumpCoins(P.launch, spinDeg, flips, grabbed, clean, P.perfect);
+  const coins = jumpCoins(P.launch, spinDeg, flips, grabbed, clean, P.perfect) + Math.round(((over ? 20 : 0) + (crossed ? 12 : 0)) * (clean ? 1.5 : 1));
   addCoins(coins);
   const name = parts.length ? parts.join(' ') : 'Straight air';
   toast(name.charAt(0).toUpperCase() + name.slice(1), 'good', `${air.toFixed(1)} s air · +${pts}${clean ? ' · stomped' : ''} · +${coins} coins`);
@@ -1865,7 +1887,7 @@ function crash(reason, n) {
   _bu.set(0, 1, 0).applyQuaternion(P.crashQ);
   P.pos.addScaledVector(_bu, 0.8);
   burst(P.pos, 80, 1.4);
-  P.charge = 0; P.popped = false; P.grab = 0; P.autoFlip = 0; P.perfect = false;
+  P.charge = 0; P.popped = false; P.grab = 0; P.autoFlip = 0; P.perfect = false; P.boardUp = 0; P.cross = 0;
   toast(reason, 'bad', 'Wipeout');
 }
 function splash() {
@@ -1952,33 +1974,21 @@ const POSE = {
   grab:   { hipH: 0.5, hipZ: 0.08, torso: 1.05, armX: 1.5, armZ: 0.28, fore: 0.3, pole: -1.25 },
   rail:   { hipH: 0.74, hipZ: 0.04, torso: 0.35, armX: 0.55, armZ: 0.95, fore: 0.55, pole: -0.5 },
   crash:  { hipH: 0.62, hipZ: 0.1, torso: 0.7, armX: 1.2, armZ: 1.2, fore: 1.2, pole: -0.4 },
+  over:   { hipH: 0.74, hipZ: 0.03, torso: 0.12, armX: 2.95, armZ: 0.16, fore: 0.12, pole: -0.2 },   // E: skis / board held over the head
+  cross:  { hipH: 0.56, hipZ: 0.1, torso: 0.75, armX: 1.25, armZ: 0.65, fore: 0.55, pole: -0.9 },    // Q: iron cross / method
 };
-const pose = { ...POSE.stance };
-const Wt = { air: 0, rail: 0, crash: 0 };
+const skier = buildSkier();
+scene.add(skier.root);
 const _tq = new THREE.Quaternion(), _off = new THREE.Vector3();
 let animT = 0;
+// what the pose needs to know about a rider (the player, or a friend from the network)
+const RS = { mode: 'ground', rail: false, tuck: 0, brake: 0, charge: 0, lean: 0, grab: 0, comp: 0, landComp: 0, up: 0, cross: 0, board: false };
 function animateSkier(dt, speed) {
   animT += dt;
-  Wt.air = damp(Wt.air, P.mode === 'air' ? 1 : 0, 9, dt);
-  Wt.rail = damp(Wt.rail, P.onRail ? 1 : 0, 10, dt);
-  Wt.crash = damp(Wt.crash, P.mode === 'crash' ? 1 : 0, 8, dt);
-  if (P.mode !== 'air') P.grab = damp(P.grab, 0, 8, dt);
-  const ground = 1 - Wt.air;
+  if (P.mode !== 'air') { P.grab = damp(P.grab, 0, 8, dt); P.boardUp = damp(P.boardUp || 0, 0, 12, dt); P.cross = damp(P.cross || 0, 0, 12, dt); }
   // the body is turned by yawVis; riding backwards the lean has to be mirrored to stay into the turn
-  const lean = P.onRail ? P.lean : P.lean * Math.cos(P.yawVis);
-  for (const k in pose) {
-    let v = lerp(lerp(POSE.stance[k], POSE.tuck[k], P.tuck), POSE.brake[k], P.brake);
-    v = lerp(v, POSE.crouch[k], P.charge * ground * (1 - Wt.rail));
-    v = lerp(v, POSE.rail[k], Wt.rail);
-    v = lerp(v, POSE.air[k], Wt.air);
-    v = lerp(v, POSE.grab[k], P.grab * Wt.air);
-    v = lerp(v, POSE.crash[k], Wt.crash);
-    pose[k] = damp(pose[k], v, 12, dt);
-  }
-  const breathe = Math.sin(animT * 1.7) * 0.006 * (1 - Math.min(1, speed / 6)) * ground;
-  // knees absorb terrain and landings
-  const comp = clamp(P.comp, -0.8, 1.4) * 0.075 * ground + P.landComp * 0.27;
-
+  Object.assign(RS, { mode: P.mode, rail: !!P.onRail, tuck: P.tuck, brake: P.brake, charge: P.charge, lean: P.onRail ? P.lean : P.lean * Math.cos(P.yawVis),
+    grab: P.grab, comp: P.comp, landComp: P.landComp, up: P.boardUp || 0, cross: P.cross || 0, board: BOARD });
   // root placement
   if (P.mode === 'gondola') {
     _tq.copy(ride.skierQ);
@@ -1993,34 +2003,76 @@ function animateSkier(dt, speed) {
   }
   if (P.mode === 'gondola') skier.root.quaternion.copy(_tq);
   else skier.root.quaternion.slerp(_tq, 1 - Math.exp(-(P.mode === 'crash' ? 30 : 22) * dt));
-  skier.rig.rotation.z = lean * (1 - Wt.crash) * (BOARD ? 1.15 : 1);
+  poseRig(skier, RS, dt, speed);
+}
+const _ra = new THREE.Vector3(), _rb = new THREE.Vector3();
+// place a ski (or binding) group: normal spot a, overhead spot o, blended by u
+function placeGroup(g, ax, ay, az, rx, ry, rz, ox, oy, oz, u) {
+  g.position.set(lerp(ax, ox, u), lerp(ay, oy, u), lerp(az, oz, u));
+  g.rotation.set(rx * (1 - u), ry * (1 - u), rz * (1 - u));
+}
+function poseRig(sk, st, dt, speed) {
+  const W = sk.Wt, pose = sk.pose, BD = st.board;
+  W.air = damp(W.air, st.mode === 'air' ? 1 : 0, 9, dt);
+  W.rail = damp(W.rail, st.rail ? 1 : 0, 10, dt);
+  W.crash = damp(W.crash, st.mode === 'crash' ? 1 : 0, 8, dt);
+  const ground = 1 - W.air, lean = st.lean;
+  const up = st.up * W.air, cr = st.cross * W.air * (1 - up);
+  for (const k in pose) {
+    let v = lerp(lerp(POSE.stance[k], POSE.tuck[k], st.tuck), POSE.brake[k], st.brake);
+    v = lerp(v, POSE.crouch[k], st.charge * ground * (1 - W.rail));
+    v = lerp(v, POSE.rail[k], W.rail);
+    v = lerp(v, POSE.air[k], W.air);
+    v = lerp(v, POSE.grab[k], st.grab * W.air * (1 - up));
+    v = lerp(v, POSE.cross[k], cr);
+    v = lerp(v, POSE.over[k], up);
+    v = lerp(v, POSE.crash[k], W.crash);
+    pose[k] = damp(pose[k], v, 12, dt);
+  }
+  const breathe = Math.sin(animT * 1.7) * 0.006 * (1 - Math.min(1, speed / 6)) * ground;
+  // knees absorb terrain and landings
+  const comp = clamp(st.comp, -0.8, 1.4) * 0.075 * ground + st.landComp * 0.27;
+  sk.rig.rotation.z = lean * (1 - W.crash) * (BD ? 1.15 : 1);
 
   // skis: wedge when braking, pulled up under the body in the air, flailing in a crash
-  const plow = BOARD ? 0 : P.brake * ground * (1 - Wt.rail) * (1 - Wt.crash);
-  const lift = 0.16 * Wt.air + 0.1 * P.grab * Wt.air;
-  const fl = BOARD ? 0 : Wt.crash;
-  const halfStance = BOARD ? STANCE : 0.12;
-  skier.board.position.y = BOARD ? lift : 0;
-  skier.skiL.position.set(-halfStance - 0.2 * plow, lift, 0.02 * plow);
-  skier.skiR.position.set(halfStance + 0.2 * plow, lift, 0.02 * plow);
-  skier.skiL.rotation.set(Math.sin(animT * 8.1) * 0.45 * fl, -0.3 * plow + Math.sin(animT * 6.3) * 0.3 * fl, -0.22 * plow);
-  skier.skiR.rotation.set(Math.sin(animT * 7.4 + 1) * 0.45 * fl, 0.3 * plow + Math.sin(animT * 5.7 + 2) * 0.3 * fl, 0.22 * plow);
+  const plow = BD ? 0 : st.brake * ground * (1 - W.rail) * (1 - W.crash);
+  const lift = 0.16 * W.air + 0.1 * st.grab * W.air + 0.1 * cr;
+  const fl = BD ? 0 : W.crash;
+  const halfStance = BD ? STANCE : 0.12;
+  const overY = pose.hipH + 1.0;   // E: held up above the helmet
+  if (BD) {   // Q = method: board tweaked back on its long axis, bindings with it
+    sk.board.position.set(0, lerp(lift, overY, up), 0.12 * cr * (1 - up));
+    sk.board.rotation.set(0.85 * cr, 0, 0);
+    placeGroup(sk.skiL, -halfStance, lift, 0.12 * cr, 0.85 * cr, 0, 0, -halfStance, overY, 0, up);
+    placeGroup(sk.skiR, halfStance, lift, 0.12 * cr, 0.85 * cr, 0, 0, halfStance, overY, 0, up);
+  } else {    // Q = iron cross: tips crossed in front, tails apart
+    placeGroup(sk.skiL, -halfStance - 0.2 * plow, lift + 0.035 * cr, 0.02 * plow,
+      Math.sin(animT * 8.1) * 0.45 * fl, -0.3 * plow + Math.sin(animT * 6.3) * 0.3 * fl - 0.5 * cr, -0.22 * plow - 0.25 * cr, -0.09, overY, 0, up);
+    placeGroup(sk.skiR, halfStance + 0.2 * plow, lift, 0.02 * plow,
+      Math.sin(animT * 7.4 + 1) * 0.45 * fl, 0.3 * plow + Math.sin(animT * 5.7 + 2) * 0.3 * fl + 0.5 * cr, 0.22 * plow + 0.25 * cr, 0.09, overY, 0, up);
+  }
+  // feet: on the skis, or out of them and hanging under the body while the skis are overhead
+  for (const [sg, side] of [[sk.skiL, -1], [sk.skiR, 1]]) {
+    const f = sg.userData.foot;
+    f.position.copy(sg.position).lerp(_ra.set(side * 0.13, pose.hipH - 1.06, 0.07), up);
+    f.rotation.set(lerp(sg.rotation.x, 0.25, up), sg.rotation.y * (1 - up), sg.rotation.z * (1 - up));
+  }
 
   // pelvis + spine
   const torso = pose.torso + comp * 0.55 + Math.sin(animT * 5.1) * 0.5 * fl;
-  skier.pelvis.position.set(0, Math.max(0.44, pose.hipH - comp + breathe), pose.hipZ + comp * 0.12);
-  skier.pelvis.rotation.set(-torso * 0.45, 0, -lean * 0.15);
-  skier.spine.rotation.set(-torso * 0.3, 0, -lean * 0.22 + Math.sin(animT * 4.3) * 0.25 * fl);
-  const by = BOARD ? 1 : 0;   // snowboarder: shoulders open and head turned to look down the fall line
-  skier.chest.rotation.set(-torso * 0.25 + breathe * 2, -0.4 * by, -lean * 0.15);
-  skier.neck.rotation.set(torso * 0.8, -0.95 * by, lean * 0.3);
+  sk.pelvis.position.set(0, Math.max(0.44, pose.hipH - comp + breathe), pose.hipZ + comp * 0.12);
+  sk.pelvis.rotation.set(-torso * 0.45, 0, -lean * 0.15);
+  sk.spine.rotation.set(-torso * 0.3, 0, -lean * 0.22 + Math.sin(animT * 4.3) * 0.25 * fl);
+  const by = BD ? 1 - up : 0;   // snowboarder: shoulders open and head turned to look down the fall line
+  sk.chest.rotation.set(-torso * 0.25 + breathe * 2, -0.4 * by, -lean * 0.15);
+  sk.neck.rotation.set(torso * 0.8, -0.95 * by, lean * 0.3);
 
-  solveLeg(skier.legL, skier.skiL);
-  solveLeg(skier.legR, skier.skiR);
+  solveLeg(sk, sk.legL, sk.skiL.userData.foot);
+  solveLeg(sk, sk.legR, sk.skiR.userData.foot);
 
   // arms: inside hand drops in turns, windmill for balance in the air, flail in a crash
-  const balance = Wt.air * (1 - P.grab);
-  for (const arm of [skier.armL, skier.armR]) {
+  const balance = W.air * (1 - st.grab) * (1 - up) * (1 - 0.7 * cr);
+  for (const arm of [sk.armL, sk.armR]) {
     const inside = arm.side * -Math.sign(lean || 1) > 0 ? 1 : -1;
     const turnK = Math.min(1, Math.abs(lean) * 1.6) * ground;
     const ph = arm.side * 1.7;
@@ -2247,9 +2299,8 @@ function buildRailMesh(r) {
     }
   }
 }
-function buildBanner() {
-  const s = PARK_START - 12, cx = centerX(s), z = -s;
-  const span = 26;
+function buildBanner(s = PARK_START - 12, text = T.banner, span = 26) {
+  const cx = centerX(s), z = -s;
   for (const sx of [-1, 1]) {
     const x = cx + sx * span / 2, y = heightAt(x, z);
     const post = shadowed(new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 6, 10), woodMat));
@@ -2263,7 +2314,7 @@ function buildBanner() {
   ctx.fillStyle = '#ffffff';
   ctx.font = '700 58px "Barlow Condensed", "Arial Narrow", Arial, sans-serif';
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(T.banner, 512, 50);
+  ctx.fillText(text, 512, 50);
   const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
   const banMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.8, side: THREE.DoubleSide });
   banMat.userData.perWorld = true;
@@ -2329,6 +2380,7 @@ function buildPark() {
   }
   for (const r of RAILS) buildRailMesh(r);
   if (T.park && T.banner) buildBanner();
+  if (T.speed) { buildBanner(T.speed[0], 'SPEED TRAP  ·  START', 46); buildBanner(T.speed[1], 'SPEED TRAP  ·  FINISH', 46); }
   if (LAKE) buildLake();
 }
 
@@ -2606,16 +2658,22 @@ function updateLift(dt) {
 const ride = { active: false, u: 0, uiT: 0, camA: 0, cabPos: new THREE.Vector3(), cabQ: new THREE.Quaternion(), skierPos: new THREE.Vector3(), skierQ: new THREE.Quaternion() };
 const _yaw180 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 let gearOn = true;
+function setRigGear(sk, on, board) {
+  for (const sg of [sk.skiL, sk.skiR]) for (const c of sg.children) c.visible = on && !board;
+  sk.armL.pole.visible = on && !board; sk.armR.pole.visible = on && !board;
+  sk.board.visible = on && board;
+}
+function setRigBoard(sk, on) {
+  sk.rig.rotation.order = 'ZYX';           // roll about the travel axis after the sideways stance
+  sk.rig.rotation.y = on ? Math.PI / 2 : 0;
+}
 function setSkierGear(on) {
   gearOn = on;
-  for (const sg of [skier.skiL, skier.skiR]) for (const c of sg.children) if (c !== sg.userData.boot) c.visible = on && !BOARD;
-  skier.armL.pole.visible = on && !BOARD; skier.armR.pole.visible = on && !BOARD;
-  skier.board.visible = on && BOARD;
+  setRigGear(skier, on, BOARD);
 }
 function setBoardMode(on) {
   BOARD = on;
-  skier.rig.rotation.order = 'ZYX';           // roll about the travel axis after the sideways stance
-  skier.rig.rotation.y = on ? Math.PI / 2 : 0;
+  setRigBoard(skier, on);
   setSkierGear(gearOn);
   SHOP.skis.label = on ? 'Boards' : 'Skis';
   const b = $('modeBtn');
@@ -3032,6 +3090,7 @@ try {
     if (Array.isArray(raw.owned)) SAVE.owned = [...new Set([...SAVE.owned, ...raw.owned])];
     if (typeof raw.trail === 'string') SAVE.trail = raw.trail;
     if (raw.board === true) SAVE.board = true;
+    if (typeof raw.speedBest === 'number' && isFinite(raw.speedBest)) SAVE.speedBest = clamp(Math.round(raw.speedBest), 0, 400);
     if (raw.equipped) for (const k in DEFAULT_GEAR) if (raw.equipped[k] && SAVE.owned.includes(raw.equipped[k])) SAVE.equipped[k] = raw.equipped[k];
   }
 } catch (e) { /* storage unavailable: start fresh */ }
@@ -3061,18 +3120,23 @@ function updateWallet() {
 
 const skiTexCache = {};
 let preview = {};   // items being tried on in the shop (not bought)
+const lookOf = () => ({ ...SAVE.equipped, ...preview });
 function applyGear() {
-  const M = skier.M;
-  const eq = { ...SAVE.equipped, ...preview };
+  const eq = lookOf();
+  applyLook(skier.M, eq);
+  const sk = itemOf('skis', eq.skis), b = itemOf('boots', eq.boots);
+  GEAR.drag = sk.stats.drag || 1; GEAR.pop = sk.stats.pop || 1; GEAR.grip = sk.stats.grip || 1;
+  GEAR.tol = b.stats.tol || 0; GEAR.impact = b.stats.impact || 0;
+}
+// colours and textures of a rider's gear (also used for friends, from the ids they send)
+function applyLook(M, eq) {
   const sk = itemOf('skis', eq.skis);
   M.skiTop.map = skiTexCache[sk.id] || (skiTexCache[sk.id] = makeSkiTopTexture(sk.tex));
   M.skiTop.needsUpdate = true;
-  GEAR.drag = sk.stats.drag || 1; GEAR.pop = sk.stats.pop || 1; GEAR.grip = sk.stats.grip || 1;
 
   const b = itemOf('boots', eq.boots);
   M.boot.color.set(b.shell); M.bootAccent.color.set(b.accent);
   M.boot.roughness = b.carbon ? 0.42 : 0.3;
-  GEAR.tol = b.stats.tol || 0; GEAR.impact = b.stats.impact || 0;
 
   const o = itemOf('outfit', eq.outfit);
   M.jacket.color.set(o.jacket); M.jacket.sheenColor.set(o.jacket).lerp(new THREE.Color(1, 1, 1), 0.45);
@@ -3187,6 +3251,7 @@ addEventListener('resize', setShopView);
    ========================================================= */
 const MAP_ART = {
   city: { d: 'M60 30 C 70 50, 54 70, 66 92', label: [76, 40], lift: [[88, 96], [84, 26]], w: 15 },
+  speed: { d: 'M584 150 C 586 200, 582 260, 586 330', label: [520, 170], lift: [[606, 334], [604, 146]], w: 15 },
   village: { d: 'M150 404 C 200 392, 250 414, 310 400', label: [168, 412], lift: [[322, 408], [318, 388]], w: 26 },
   valley: { d: 'M318 98 C 284 150, 372 190, 320 240 S 362 320, 336 384', label: [348, 150], lift: [[370, 390], [362, 96]], w: 15 },
   bigair: { d: 'M486 212 C 492 238, 482 266, 490 304', label: [500, 226], lift: [[518, 308], [514, 206]], jump: [487, 256], w: 17 },
@@ -3573,6 +3638,7 @@ function frame() {
     P.time += dt;
     if (P.mode !== 'crash') P.top = Math.max(P.top, speed);
     if (P.mode === 'ground' && !P.onRail) emitSpray(dt, speed);
+    if (T.speed) speedTrap();
     if (-P.pos.z >= RUN && P.mode !== 'crash') finishRun();
   } else {
     speed = P.vel.length();
@@ -3602,12 +3668,27 @@ function cancelVillageCountdown() {
   if (villageTimer) { clearInterval(villageTimer); villageTimer = null; }
   $('goVillage').textContent = 'Ski on to the village';
 }
-function goToVillage() {
+function goToVillage(title = 'Welcome to the village', sub = 'gondolas to every trail are around the square') {
   cancelVillageCountdown();
   $('finish').hidden = true;
   if (ride.active) endRide();
   chooseTrail('village', true);   // builds the village and drops you in the middle of the square
-  toast('Welcome to the village', 'good', 'gondolas to every trail are around the square');
+  toast(title, 'good', sub);
+}
+// Speed Trap trail: average speed over the 100 m between the two banners
+const trapA = new THREE.Vector3();
+function speedTrap() {
+  const s = -P.pos.z, [a, b] = T.speed;
+  if (!P.trapT0 && !P.trapDone && s >= a) { P.trapT0 = P.time; trapA.copy(P.pos); }
+  if (P.trapT0 && !P.trapDone && s >= b) {
+    P.trapDone = true;
+    const kmh = Math.round((P.pos.distanceTo(trapA) / Math.max(0.2, P.time - P.trapT0)) * 3.6);   // real distance down the slope
+    const best = SAVE.speedBest || 0, rec = kmh > best;
+    if (rec) { SAVE.speedBest = kmh; saveGame(); }
+    const coins = Math.round(kmh / 6);
+    addCoins(coins);
+    toast(`Speed trap: ${kmh} km/h`, 'good', `${rec ? 'new personal best!' : 'best ' + best + ' km/h'} · +${coins} coins`);
+  }
 }
 function finishRun() {
   if (T.hub) {   // bottom of the village: straight back up to the square
@@ -3618,13 +3699,19 @@ function finishRun() {
     return;
   }
   P.running = false; P.finished = true;
+  const raced = !!(MP.race && MP.race.started && !MP.race.finished);
+  mpOnFinish();
+  // the trail simply runs out into the village: no finish screen, no button (a race still shows its results)
+  if (!raced) {
+    goToVillage('Run complete · into the village', `${fmtTime(P.time)} · top ${Math.round(P.top * 3.6)} km/h · ${nf.format(P.score)} points · +${nf.format(P.runCoins || 0)} coins`);
+    return;
+  }
   $('fTime').textContent = fmtTime(P.time);
   $('fTop').textContent = Math.round(P.top * 3.6);
   $('fScore').textContent = nf.format(P.score);
   $('fCoins').textContent = nf.format(P.runCoins || 0);
   $('liftInfo').textContent = `The gondola climbs ${(LIFT.up.L / 1000).toFixed(1)} km back to the top station, about ${fmtClock(LIFT.up.L / GOND.v)}. You can skip the ride at any time.`;
   $('finish').hidden = false;
-  mpOnFinish();
   $('liftInfo').textContent = `The trail runs out into the Mountain Village, with gondolas to every trail. Or take this trail's gondola back up (${fmtClock(LIFT.up.L / GOND.v)}).`;
   $('goVillage').focus();
   // ski on automatically unless a race result is being shown
@@ -3655,7 +3742,7 @@ function bindTouch(id, key) {
   el.addEventListener('pointerdown', on); el.addEventListener('pointerup', off);
   el.addEventListener('pointercancel', off); el.addEventListener('pointerleave', off);
 }
-bindTouch('tL', 'L'); bindTouch('tR', 'R'); bindTouch('tT', 'T'); bindTouch('tB', 'B'); bindTouch('tJ', 'J');
+bindTouch('tL', 'L'); bindTouch('tR', 'R'); bindTouch('tT', 'T'); bindTouch('tB', 'B'); bindTouch('tJ', 'J'); bindTouch('tE', 'E'); bindTouch('tQ', 'Q');
 $('tF').addEventListener('pointerdown', (e) => { e.preventDefault(); if (started && P.running) P.wantFlip = true; });
 
 // course bar: mark the park and the pipe for the current trail
@@ -3974,18 +4061,7 @@ const mpColor = (id) => { let h = 0; for (const c of id) h = (h * 31 + c.charCod
 const mpHex = (c) => '#' + c.toString(16).padStart(6, '0');
 const mpLink = () => `${location.origin}${location.pathname}?room=${MP.room}`;
 
-/* ---------- ghost skiers (light models so several friends stay smooth on a phone) ---------- */
-const GH = {
-  ski: new THREE.BoxGeometry(0.08, 0.025, 1.7),
-  leg: new THREE.CapsuleGeometry(0.075, 0.55, 4, 8),
-  torso: new THREE.CapsuleGeometry(0.17, 0.36, 4, 10),
-  arm: new THREE.CapsuleGeometry(0.05, 0.42, 3, 6),
-  head: new THREE.SphereGeometry(0.135, 14, 10),
-  pole: new THREE.CylinderGeometry(0.01, 0.01, 1.15, 5),
-  dark: new THREE.MeshStandardMaterial({ color: 0x1d232b, roughness: 0.7 }),
-  helmet: new THREE.MeshStandardMaterial({ color: 0xf1f1ee, roughness: 0.35 }),
-  metal: new THREE.MeshStandardMaterial({ color: 0xb8c0c8, roughness: 0.3, metalness: 0.8 }),
-};
+/* ---------- friends: the same rider model as yours, in their own gear and moves ---------- */
 function makeLabel(text, color) {
   const cv = document.createElement('canvas'); cv.width = 256; cv.height = 64;
   const c = cv.getContext('2d');
@@ -4000,29 +4076,39 @@ function makeLabel(text, color) {
   return sp;
 }
 function makeGhost(color, name) {
-  const root = new THREE.Group();
-  const jacket = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-  const add = (geo, mat, x, y, z, rx = 0, rz = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, 0, rz); root.add(m); return m; };
-  for (const s of [-1, 1]) {
-    add(GH.ski, GH.dark, s * 0.12, 0.02, 0);
-    add(GH.leg, GH.dark, s * 0.12, 0.45, 0.03, 0.18);
-    add(GH.arm, jacket, s * 0.27, 1.02, -0.12, 0.9, -s * 0.25);
-    add(GH.pole, GH.metal, s * 0.33, 0.55, 0.05, -0.35);
-  }
-  add(GH.torso, jacket, 0, 1.0, 0.06, -0.35);
-  add(GH.head, GH.helmet, 0, 1.47, -0.1);
+  const sk = buildSkier();
+  sk.M.skiTop.map.dispose();   // replaced by the friend's own (cached) ski texture
+  const root = sk.root;
   const label = makeLabel(name, color);
   root.add(label);
-  root.userData = { jacket, label };
+  sk.st = { ...RS };
+  sk.look = '';
+  root.userData = { sk, label };
   scene.add(root);
   return root;
 }
 function dropGhost(p) {
   if (!p.ghost) return;
   scene.remove(p.ghost);
-  p.ghost.userData.jacket.dispose();
+  p.ghost.traverse((o) => {
+    if (o.geometry && !o.isSprite) o.geometry.dispose();
+    if (o.material && !o.isSprite) for (const m of [].concat(o.material)) m.dispose();
+  });
   p.ghost.userData.label.material.map.dispose(); p.ghost.userData.label.material.dispose();
   p.ghost = null;
+}
+// a friend's pose + gear from their latest message
+const MP_MODES = ['ground', 'air', 'crash', 'gondola'];
+function poseGhost(p, dt) {
+  const sk = p.ghost.userData.sk, st = sk.st, k = p.k;
+  const look = p.look.join('|') + (p.board ? '|b' : '');
+  if (look !== sk.look) {
+    sk.look = look;
+    applyLook(sk.M, { skis: p.look[0], boots: p.look[1], outfit: p.look[2], helmet: p.look[3] });
+    setRigBoard(sk, p.board); setRigGear(sk, true, p.board);
+  }
+  Object.assign(st, { mode: p.mode, rail: p.rail, board: p.board, tuck: k[0], brake: k[1], charge: k[2], lean: k[3], grab: k[4], comp: k[5], landComp: k[6], up: k[7], cross: k[8] });
+  poseRig(sk, st, dt, p.vel.length());
 }
 
 /* ---------- connection ---------- */
@@ -4106,7 +4192,8 @@ function mpOnMessage(payload) {
   if (m.t === 'leave') { const p = MP.peers.get(id); if (p) { dropGhost(p); MP.peers.delete(id); mpRender(); } return; }
   let p = MP.peers.get(id);
   if (!p) {
-    p = { id, name: '', color: mpColor(id), pos: new THREE.Vector3(), vel: new THREE.Vector3(), q: new THREE.Quaternion(), seen: now, rt: now, tr: '', home: true, d: 0, rc: '', ghost: null };
+    p = { id, name: '', color: mpColor(id), pos: new THREE.Vector3(), vel: new THREE.Vector3(), q: new THREE.Quaternion(), seen: now, rt: now, tr: '', home: true, d: 0, rc: '', ghost: null,
+      mode: 'ground', rail: false, board: false, k: new Array(9).fill(0), look: ['', '', '', ''] };
     MP.peers.set(id, p);
     toast(`${mpStr(m.n, 16) || 'A friend'} joined`, 'good', `room ${MP.room}`);
   }
@@ -4127,6 +4214,10 @@ function mpOnMessage(payload) {
     p.home = !!m.h;
     p.d = mpNum(m.d) || 0;
     p.rc = mpStr(m.rc, 12);
+    p.mode = MP_MODES[mpNum(m.m, 10)] || 'ground';
+    p.rail = m.r === 1; p.board = m.b === 1;
+    if (Array.isArray(m.k)) for (let i = 0; i < 9; i++) p.k[i] = clamp(mpNum(m.k[i], 10) || 0, i === 3 ? -2 : 0, 2);
+    if (Array.isArray(m.g)) for (let i = 0; i < 4; i++) { const v = mpStr(m.g[i], 24); if (v) p.look[i] = v; }
   } else if (m.t === 'race') {
     mpStartRace(mpStr(m.tr, 20), mpStr(m.rid, 12), p.name || 'A friend');
   } else if (m.t === 'fin') {
@@ -4230,6 +4321,9 @@ function mpUpdate(dt) {
       x: f2(rp.x), y: f2(rp.y), z: f2(rp.z), vx: f2(P.vel.x), vy: f2(P.vel.y), vz: f2(P.vel.z),
       qx: f3(rq.x), qy: f3(rq.y), qz: f3(rq.z), qw: f3(rq.w),
       d: Math.round(-P.pos.z), rc: R && R.started && !R.finished ? R.rid : '',
+      m: Math.max(0, MP_MODES.indexOf(P.mode)), r: P.onRail ? 1 : 0, b: BOARD ? 1 : 0,
+      k: [RS.tuck, RS.brake, RS.charge, RS.lean, RS.grab, RS.comp, RS.landComp, RS.up, RS.cross].map(f2),
+      g: ((e) => [e.skis, e.boots, e.outfit, e.helmet])(lookOf()),
     });
   }
   // peers: drop silent ones, move ghosts smoothly
@@ -4246,6 +4340,7 @@ function mpUpdate(dt) {
     if (p.ghost.position.distanceToSquared(_gp) > 400) p.ghost.position.copy(_gp);   // teleported (gondola skip, new run)
     else p.ghost.position.lerp(_gp, 1 - Math.exp(-14 * dt));
     p.ghost.quaternion.slerp(p.q, 1 - Math.exp(-12 * dt));
+    poseGhost(p, dt);
     // name tag only when the friend is close: fades out between 25 and 40 m
     const lbl = p.ghost.userData.label, dist = camera.position.distanceTo(p.ghost.position);
     lbl.material.opacity = 1 - smooth(25, 40, dist);

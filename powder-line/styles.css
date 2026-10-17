@@ -139,6 +139,7 @@ kbd{font-family:var(--display);font-size:13px;font-weight:600;color:var(--ink);m
 .touch div{display:flex;gap:10px}
 .touch button{pointer-events:auto;width:64px;height:64px;border-radius:50%;border:1px solid var(--panel-edge);background:var(--panel);color:var(--ink);font:600 13px/1 var(--display);letter-spacing:.1em;text-transform:uppercase;touch-action:none}
 .touch button.on{background:rgba(255,106,61,.55)}
+.touch .tricks{position:absolute;right:16px;bottom:74px}
 @media (pointer:fine){.touch{display:none}}
 @media (pointer:coarse){.keys{display:none}}
 @media (max-width:520px){.speed b{font-size:52px}.meta{font-size:12px}}
