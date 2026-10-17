@@ -202,3 +202,7 @@ button,a,input,select{touch-action:manipulation}
 .map-body{grid-template-columns:minmax(0,1fr) 290px}
 .map-art{width:min(100%, calc((100dvh - 120px) * 640 / 440));justify-self:center}
 @media (max-width:760px){.map-body{grid-template-columns:1fr}.map-art{width:100%}}
+
+/* white-out while you ski on from the end of a trail into the village */
+.fade{position:fixed;inset:0;background:#f4f8fc;opacity:0;pointer-events:none;transition:opacity .4s ease;z-index:60}
+.fade.on{opacity:1}
